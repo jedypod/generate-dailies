@@ -9,45 +9,51 @@ if not OCIO_CONFIG:
 	OCIO_CONFIG = "/mnt/cave/dev/ocio/aces/config.ocio"
 
 
+# def transcode(imgpath=None):
+imgpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/monkey_test/M07-2031_000188.exr'
 
-def transcode(imgpath=None):
+buf_src = ImageBuf(imgpath)
+if buf_src == None:
+	print "Error:", oiio.geterror()
+	return
 
-	buf_src = ImageBuf(imgpath)
-	if buf_src == None:
-		print "Error:", oiio.geterror()
-		return
+# Gather information about source image
+spec_src = buf_src.spec()
+input_width = spec_src.width
+# input_width = 3072
+input_height = spec_src.height
+# input_height = 1320
+input_ar = float(input_width)/float(input_height)
+input_datatype = spec_src.format
+input_channels = spec_src.nchannels
+print "Input image is {0}x{1} par {2} type {3} channels {4}".format(input_width, input_height, input_ar, input_datatype, input_channels)
 
+for i in range(len(spec_src.extra_attribs)):
+	print i, spec_src.extra_attribs[i].name, str(spec_src.extra_attribs[i].type), " :"
+	print "\t", spec_src.extra_attribs[i].value
 
-	# Gather information about source image
-	# spec_src = buf_src.spec()
-	# input_width = spec_src.width
-	input_width = 3072
-	# input_height = spec_src.height
-	input_height = 1320
-	input_ar = float(input_width)/float(input_height)
-	# input_datatype = spec_src.format
-	# print "Input image is {0}x{1} par {2} type {3}".format(input_width, input_height, input_ar, input_datatype)
+print spec_src.channel_name(1)
 
-	RWIDTH = 1920
+	# RWIDTH = 1920
 
-	buf_display = ImageBuf(ImageSpec(input_width, input_height, 3, oiio.HALF))
+	# buf_display = ImageBuf(ImageSpec(input_width, input_height, 3, oiio.HALF))
 
-	# OCIO Color Conversions
-	# ImageBufAlgo.colorconvert(buf_resize, buf_resize, "lin_ap0", "lin_ap1", colorconfig=OCIO_CONFIG)
-	ImageBufAlgo.ociodisplay(buf_display, buf_src, "ACES", "RRT", colorconfig=OCIO_CONFIG)
+	# # OCIO Color Conversions
+	# # ImageBufAlgo.colorconvert(buf_resize, buf_resize, "lin_ap0", "lin_ap1", colorconfig=OCIO_CONFIG)
+	# ImageBufAlgo.ociodisplay(buf_display, buf_src, "ACES", "RRT", colorconfig=OCIO_CONFIG)
 
-	# Make a new image buffer for the output resized image
-	buf_resize = ImageBuf()
+	# # Make a new image buffer for the output resized image
+	# buf_resize = ImageBuf()
 	
-	# # Make a new image buffer for the range compressed log image
-	# buf_compress = ImageBuf()
-	# ImageBufAlgo.rangecompress(buf_compress, buf_src)
+	# # # Make a new image buffer for the range compressed log image
+	# # buf_compress = ImageBuf()
+	# # ImageBufAlgo.rangecompress(buf_compress, buf_src)
 
-	ImageBufAlgo.resize(buf_resize, buf_display, "lanczos3", 6.0, 
-				oiio.ROI(0, RWIDTH, 0, int(RWIDTH/input_ar), 0, 1, 0, buf_display.nchannels))
-	# ImageBufAlgo.rangeexpand(buf_resize, buf_resize)
+	# ImageBufAlgo.resize(buf_resize, buf_display, "lanczos3", 6.0, 
+	# 			oiio.ROI(0, RWIDTH, 0, int(RWIDTH/input_ar), 0, 1, 0, buf_display.nchannels))
+	# # # ImageBufAlgo.rangeexpand(buf_resize, buf_resize)
 
-	outpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/test/M26-1917_000050_half.exr'
+	# outpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/output/test.tif'
 	# out_type = "tif"
 	# output = ImageOutput.create(outpath)
 	# if not output :
@@ -56,23 +62,25 @@ def transcode(imgpath=None):
 	# out_spec = ImageSpec(buf_src.spec().width, buf_src.spec().height, 3, oiio.UINT16)
 
 	# ok = output.open(outpath, out_spec, oiio.Create)
-	# ok = output.open(outpath, out_spec, oiio.Create)
 	# if not ok:
 	# 	print "Could not open", outpath, ":", output.geterror()
 
-	buf_resize.write(outpath)
+	# # buf_resize.write(outpath)
 
 
 
 
 
-if __name__=="__main__":
-	# imgpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/test/exr/M26-1917_%06d.exr'
-	imgpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/test/exr/M26-1917_000050.exr'
-	transcode(imgpath)
+# if __name__=="__main__":
+# 	# imgpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/test/exr/M26-1917_%06d.exr'
+# 	# imgpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/test/exr/M26-1917_000050.exr'
+# 	imgpath = '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/monkey_test/M07-2031_000188.exr'
+# 	transcode(imgpath)
 
 
 '''
+
+http://lists.openimageio.org/pipermail/oiio-dev-openimageio.org/2016-March/000384.html
 https://github.com/OpenImageIO/oiio/issues/1764
 http://lists.openimageio.org/pipermail/oiio-dev-openimageio.org/2013-October/006298.html
 https://gist.github.com/justinfx/33931727822fbebc4aa5
