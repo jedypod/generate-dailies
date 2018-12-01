@@ -28,9 +28,7 @@ from glob import glob
 	Example Command:
 	./exrpipe -i '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/monkey_test/M07-2031.%05d.exr' -s 190 -e 200 -d ACES -v RRT -r 2048x1152 | ffmpeg-10bit -f rawvideo -pixel_format rgb48le -video_size 1920x1080 -framerate 24 -i pipe:0 
 	-c:v libx264 -profile:v high444 -preset veryslow -g 1 -tune film -crf 13 -pix_fmt yuv444p10le -vf "colormatrix=bt601:bt709" test.mov
-""" 
-
-
+"""
 
 
 
@@ -38,30 +36,47 @@ def write_frame(buf):
 	# Write the passed image buffer to stdout
 	buf.get_pixels(oiio.UINT16).tofile(sys.stdout)
 
+def oiio_reformat(buf, owidth, oheight):
+	# Reformat an incoming image buffer to the specified width and height: no resize no resampling, just changing the res
+	bgbuf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
+	oiio.ImageBufAlgo.zero(bgbuf)
+	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+	buf = oiio.ImageBufAlgo.over(buf, bgbuf)
+	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+	return buf
+
 
 def process_frame(frame, globals_config, codec_config):
 	"""
 		Apply all color and reformat operations to input image, then write the frame to stdout
 	"""
-	
-	# Get Codec Config
-	owidth = globals_config['width']
-	oheight = globals_config['height']
-	fit = globals_config['fit']
 
 	# Setup image buffer
 	buf = oiio.ImageBuf(frame)
 	spec = buf.spec()
+	
+	# Get Codec Config and gather information
+	iwidth = spec.width
+	iheight = spec.height
+	iar = float(iwidth) / float(iheight)
+
+	owidth = globals_config['width']
+	oheight = globals_config['height']
+	if not oheight:
+		# Resize keeping aspect ratio, long side = width - calc height
+		oheight = int(owidth / iar)
+	oar = float(owidth) / float(oheight)
+	fit = globals_config['fit']
 
 	# Remove alpha channel
 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 
 	# Apply OCIO Display
-	ocioconfig = global_config['ocioconfig']
-	ociocolorconvert = global_config['ociocolorconvert']
-	ociolook = global_config['ociolook']
-	ociodisplay = global_config['ociodisplay']
-	ocioview = global_config['ocioview']
+	ocioconfig = globals_config['ocioconfig']
+	ociocolorconvert = globals_config['ociocolorconvert']
+	ociolook = globals_config['ociolook']
+	ociodisplay = globals_config['ociodisplay']
+	ocioview = globals_config['ocioview']
 	if ocioconfig:
 		if ociocolorconvert:
 			oiio.ImageBufAlgo.ociocolorconvert(buf, buf, ociocolorconvert, ocioview, colorconfig=ocioconfig)
@@ -72,25 +87,38 @@ def process_frame(frame, globals_config, codec_config):
 			oiio.ImageBufAlgo.ociodisplay(buf, buf, ociodisplay, ocioview, colorconfig=ocioconfig)
 
 	# Apply Resize / Fit
-	iwidth = spec.width
-	iheight = spec.height
-	iar = iwidth / iheight
-	if 
-	rwidth, rheight = resize.split('x')
-	rwidth = int(rwidth)
-	rheight = int(rheight)
-	if rheight == 0:
-		# Resize keeping aspect ratio, long side = width - calc height
-		rheight = rwidth / iar
+	identical = owidth == iwidth and oheight == iheight
+	if not identical:
+		print "Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, owidth, oheight, oar) 
 
-	roi = oiio.ROI(0, rwidth, 0, rheight)
-	oar = rwidth / rheight
-	if oar != iar:
-		print "specified aspect ratio does not match input aspect ratio:\niar:{0} oar: {1}".format(iar, oar)
-		oiio.ImageBufAlgo.fit(buf, buf, "lanczos3", 6.0, roi=roi)
-	else:
-		# Resize without fitting
-		oiio.ImageBufAlgo.resize(buf, buf, "lanczos3", 6.0, roi=roi)
+		# roi = oiio.ROI(0, owidth, 0, oheight, 0, 1, 0, 3)
+		roi = oiio.ROI(0, owidth, 0, oheight)
+		
+		# (bug): dst buf must be assigned or ImageBufAlgo.resize doesn't work
+		# buf = oiio.ImageBufAlgo.resize(buf, "lanczos3", 3.0, roi=roi)
+		# buf = oiio.ImageBufAlgo.fit(buf, "lanczos3", 3.0, roi=roi)
+		# buf = oiio.ImageBufAlgo.crop(buf, roi=roi)
+		
+		# (bug): buf.set_origin does not seem to do anything? 
+		# buf.set_origin(0, 400, 0)
+
+		# (bug): buf.set_full does not take an oiio.RIO object as indicated in the documentation.
+		# buf.set_full(0, 1920, 0, 800, 0, 0)
+
+		if oar != iar and fit:
+			print "specified aspect ratio does not match input aspect ratio:\niar:{0} oar: {1}".format(iar, oar)
+			# buf = oiio_reformat(buf, owidth, oheight)
+			bgbuf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
+			oiio.ImageBufAlgo.zero(bgbuf)
+			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+			buf = oiio.ImageBufAlgo.over(buf, bgbuf)
+			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+		
+		# else:
+			# Resize without fitting
+			# oiio.ImageBufAlgo.resize(buf, buf, "lanczos3", 6.0, roi=roi)
+	
+	buf.write(os.path.splitext(os.path.split(frame)[-1])[0]+".jpg")
 	# write_frame(buf)
 
 
@@ -168,7 +196,7 @@ def setup_ffmpeg(globals_config, codec_config):
 		args += " -pix_fmt {0}".format(codec_config['pix_fmt'])
 
 	if globals_config['framerate']:
-		args += " -r {0}".format(vframerate)
+		args += " -r {0}".format(globals_config['framerate'])
 
 	if codec_config['vf']:
 		args += " -vf {0}".format(codec_config['vf'])
@@ -221,6 +249,8 @@ def get_frames(image_sequence):
 	if not frames:
 		print "Could not find any frames to operate on!"
 		return None, None, None, None
+
+	frames.sort()
 	
 	print "\nFound {0} {1} frames named {2} in \n\t{3}".format(len(frames), extension, filename, dirname)
 
@@ -264,9 +294,9 @@ def setup():
 	codec_config = config["output_profiles"][preset]
 
 	# Try to get ocio config from $OCIO env-var if it's not defined
-	if not global_config['ocioconfig']:
+	if not globals_config['ocioconfig']:
 		if os.getenv("OCIO"):
-			global_config['ocioconfig'] = os.getenv("OCIO")
+			globals_config['ocioconfig'] = os.getenv("OCIO")
 
 	# Codec Overrides Globals
 	for key, value in codec_config.iteritems():
@@ -288,7 +318,7 @@ def setup():
 
 	# Loop through all frames and process them with oiio, and write them to stdout
 	for frame in frames:
-		process(frame, globals_config, codec_config)
+		process_frame(frame, globals_config, codec_config)
 
 	
 
