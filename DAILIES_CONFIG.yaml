@@ -5,7 +5,7 @@ globals:
   ###############################################
 
   # Path to the ocio config to use
-  ocio_config: /opt/ocio/aces/config.ocio
+  ocioconfig: /opt/ocio/aces/config.ocio
   # ocio display transform
   ociodisplay: ACES
   # ocio view transform 
@@ -16,23 +16,47 @@ globals:
   ###############################################
   ## Reformatting and Cropping
   ###############################################
-
-  # Number of pixels to crop from width and height before resizing to dailies res
-  cropwidth: 0
-  cropheight: 0
+  # If debug is true, no encoding will be done and there will be debug prints 
+  debug: true
+  # Number of pixels to crop from width and height before resizing to dailies res. 
+  # You can enter an int pixel number, or a percentage like  5% or 6.25%
+  cropwidth:
+  cropheight: 
   # width and height are the resolution to reformat to. 
-  width: 1920
-  height: 1080
+  width: 2048
+  height:
   # If fit=no, height will be ignored and the aspect ratio of the input will be preserved.
-  fit: yes
-  filter: lanczos3
+  fit: true
+
+  # Enable an oiio pixel filter to use for scaling. Default is good: blackman-harris for scaling up, lanczos3 for scaling down.
+  # 
+  # Possible filters: https://github.com/OpenImageIO/oiio/blob/master/src/libutil/filter.cpp
+  # // name             dim width fixedwidth scalable separable
+  #     { "box",             1,   1,    false,    true,     true },
+  #     { "triangle",        1,   2,    false,    true,     true },
+  #     { "gaussian",        1,   3,    false,    true,     true },
+  #     { "sharp-gaussian",  1,   2,    false,    true,     true },
+  #     { "catmull-rom",     1,   4,    false,    true,     true },
+  #     { "blackman-harris", 1,   3,    false,    true,     true },
+  #     { "sinc",            1,   4,    false,    true,     true },
+  #     { "lanczos3",        1,   6,    false,    true,     true },
+  #     { "mitchell",        1,   4,    false,    true,     true },
+  #     { "bspline",         1,   4,    false,    true,     true },
+  #     { "cubic",           1,   4,    false,    true,     true },
+  #     { "keys",            1,   4,    false,    true,     true },
+  #     { "simon",           1,   4,    false,    true,     true },
+  #     { "rifman",          1,   4,    false,    true,     true }
+  #     // clang-format on
+  filter:
+
   # Output framerate. film=24, hdtv=23.98 = 24000/1001, pal=25, ntsc=30000/1001
   framerate: 24
+  
   # specify a default video filter string to use in ffmpeg.
   # https://trac.ffmpeg.org/wiki/Scaling
   # https://ffmpeg.org/ffmpeg-scaler.html
   # Example: "lut3d=${lut},scale=w=${width}:h=${height}:force_original_aspect_ratio=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2"
-  # vf: 
+  vf: 
   # Choose which output profile to use by default. See options below.
   output_profile: h264_hq
 
@@ -40,10 +64,15 @@ globals:
   ###############################################
   ## Overlays
   ###############################################
+  # Enable an overlay to crop the pixels to a specific aspect ratio. 
+  # For example to do a hard crop to 2.35 set the cropmask-ar to 2.35 and the crop mask opacity to 1.0
+  cropmask: true
+  cropmask_ar: 2.35
+  cropmask_opacity: 1.0
 
   # Choose the font file to use
   font: /opt/font.ttc
-  framecounter: yes
+  framecounter: true
 
 
 # Output profile definitions. 
