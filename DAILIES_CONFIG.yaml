@@ -1,0 +1,178 @@
+globals:
+
+  ###############################################
+  ## Color
+  ###############################################
+
+  # Path to the ocio config to use
+  ocio_config: /opt/ocio/aces/config.ocio
+  # ocio display transform
+  ociodisplay: ACES
+  # ocio view transform 
+  ocioview: RRT
+  ociocolorconvert: 
+  ociolook:   
+
+  ###############################################
+  ## Reformatting and Cropping
+  ###############################################
+
+  # Number of pixels to crop from width and height before resizing to dailies res
+  cropwidth: 0
+  cropheight: 0
+  # width and height are the resolution to reformat to. 
+  width: 1920
+  height: 1080
+  # If fit=no, height will be ignored and the aspect ratio of the input will be preserved.
+  fit: yes
+  filter: lanczos3
+  # Output framerate. film=24, hdtv=23.98 = 24000/1001, pal=25, ntsc=30000/1001
+  framerate: 24
+  # specify a default video filter string to use in ffmpeg.
+  # https://trac.ffmpeg.org/wiki/Scaling
+  # https://ffmpeg.org/ffmpeg-scaler.html
+  # Example: "lut3d=${lut},scale=w=${width}:h=${height}:force_original_aspect_ratio=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2"
+  # vf: 
+  # Choose which output profile to use by default. See options below.
+  output_profile: h264_hq
+
+
+  ###############################################
+  ## Overlays
+  ###############################################
+
+  # Choose the font file to use
+  font: /opt/font.ttc
+  framecounter: yes
+
+
+# Output profile definitions. 
+output_profiles:
+    h264_hq:
+      name: h264_hq
+      width:
+      height:
+      fit:
+      framerate:
+      codec: libx264
+      profile: high444
+      qscale:
+      preset: veryslow
+      keyint: 1
+      bframes: 0
+      tune: film
+      crf: 13
+      pix_fmt: yuv444p10le
+      vf: colormatrix=bt601:bt709
+      bitdepth: 10
+      vendor:
+      metadata_s:
+      bitrate:
+    h264_lq:
+      name: h264_lq
+      width:
+      height:
+      fit:
+      framerate:
+      codec: libx264
+      profile: high
+      qscale:
+      preset: veryslow
+      keyint: 1
+      bframes: 0
+      tune: film
+      crf: 17
+      pix_fmt: yuv420p
+      vf: colormatrix=bt601:bt709
+      bitdepth: 8
+      vendor:
+      metadata_s:
+      bitrate:
+    prores_4444:
+      name: prores_4444
+      width:
+      height:
+      fit:
+      framerate:
+      codec: prores_ks
+      profile: 4
+      qscale: 7
+      preset: 
+      keyint: 
+      bframes:
+      tune: 
+      crf:
+      pix_fmt: yuva444p10le
+      vf: colormatrix=bt601:bt709
+      bitdepth: 10
+      vendor: ap10
+      metadata_s: encoder="Apple ProRes 4444"
+      bitrate:
+    prores_422hq:
+      name: prores_422hq
+      width:
+      height:
+      fit:
+      framerate:
+      codec: prores_ks
+      profile: 3
+      qscale: 7
+      preset: 
+      keyint: 
+      bframes:
+      tune: 
+      crf:
+      pix_fmt: yuva444p10le
+      vf: colormatrix=bt601:bt709
+      bitdepth: 10
+      vendor: ap10
+      metadata_s: encoder="Apple ProRes 422 HQ"
+      bitrate:
+    prores_422:
+    dnxhd_36:
+    dnxhd_175:
+      # http://forum.selur.de/topic1348-dnxhr-encoding.html
+      # 1920x1080p  175 10  24000/1001
+      name: dnxhd_175
+      width:
+      height:
+      fit:
+      framerate: 24000/1001
+      codec: dnxhd
+      profile: dnxhd
+      qscale:
+      preset: 
+      keyint:
+      bframes:
+      tune:
+      crf:
+      pix_fmt: yuva444p10le
+      vf: colormatrix=bt601:bt709
+      bitdepth: 10
+      vendor:
+      metadata_s:
+      bitrate: 175M
+    dnxhr_hqx:
+      # https://askubuntu.com/questions/907398/how-to-convert-a-video-with-ffmpeg-into-the-dnxhd-dnxhr-format
+      # dnxhd, dnxhr_444, dnxhr_hqx, dnxhr_hq, dnxhr_sq, dnxhr_lb
+      # 12 bit 4:2:2
+      name: dnxhr_hqx
+      width:
+      height:
+      fit:
+      framerate:
+      codec: dnxhd
+      profile: dnxhr_hqx
+      qscale:
+      preset: 
+      keyint: 
+      bframes:
+      tune: 
+      crf:
+      pix_fmt: yuva444p10le
+      vf: colormatrix=bt601:bt709
+      bitdepth: 12
+      vendor:
+      metadata_s:
+      bitrate:
+    mjpeg:
