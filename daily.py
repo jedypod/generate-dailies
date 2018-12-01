@@ -6,6 +6,7 @@ import numpy as np
 import os, sys, re, argparse
 import shlex, subprocess
 from glob import glob
+import logging
 
 """
 	Daily
@@ -30,6 +31,16 @@ from glob import glob
 	-c:v libx264 -profile:v high444 -preset veryslow -g 1 -tune film -crf 13 -pix_fmt yuv444p10le -vf "colormatrix=bt601:bt709" test.mov
 """
 
+# Set up logging
+os.remove('daily.log')
+logger = logging.getLogger(__name__)
+handler = logging.FileHandler('daily.log')
+# log_format = '%(levelname)s \t%(asctime)s \t%(message)s'
+log_format = '%(levelname)s \t%(message)s'
+formatter = logging.Formatter(log_format)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 
 
 def write_frame(buf):
@@ -45,12 +56,21 @@ def oiio_reformat(buf, owidth, oheight):
 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 	return buf
 
+def oiio_transform(buf, xoffset, yoffset):
+	# transform an image without filtering
+	orig_roi = buf.roi
+	buf.specmod().x += xoffset
+	buf.specmod().y += yoffset
+	buf_trans = oiio.ImageBuf()
+	oiio.ImageBufAlgo.crop(buf_trans, buf, orig_roi)
+	return buf_trans
+
 
 def process_frame(frame, globals_config, codec_config):
 	"""
 		Apply all color and reformat operations to input image, then write the frame to stdout
 	"""
-
+	logger.info("Processing frame: \t{0}".format(os.path.split(frame)[-1]))
 	# Setup image buffer
 	buf = oiio.ImageBuf(frame)
 	spec = buf.spec()
@@ -60,13 +80,12 @@ def process_frame(frame, globals_config, codec_config):
 	iheight = spec.height
 	iar = float(iwidth) / float(iheight)
 
+	px_filter = globals_config['filter']
 	owidth = globals_config['width']
 	oheight = globals_config['height']
-	if not oheight:
-		# Resize keeping aspect ratio, long side = width - calc height
-		oheight = int(owidth / iar)
-	oar = float(owidth) / float(oheight)
 	fit = globals_config['fit']
+	cropwidth = globals_config['cropwidth']
+	cropheight = globals_config['cropheight']
 
 	# Remove alpha channel
 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
@@ -86,18 +105,85 @@ def process_frame(frame, globals_config, codec_config):
 			# Apply OCIO display transform onto specified image buffer
 			oiio.ImageBufAlgo.ociodisplay(buf, buf, ociodisplay, ocioview, colorconfig=ocioconfig)
 
+
+	# Setup for width and height
+	if not owidth:
+		resize = False
+	else:
+		resize = True
+		# If no output height specified, resize keeping aspect ratio, long side = width - calc height
+		oheight_noar = int(owidth / iar)
+		if not oheight:
+			oheight = oheight_noar
+		oar = float(owidth) / float(oheight)
+
+
+	# Apply cropwidth / cropheight to remove pixels on edges before applying resize
+	if cropwidth or cropheight:
+		# Handle percentages
+		if "%" in cropwidth:
+			cropwidth = int(float(cropwidth.split('%')[0])/100*iwidth)
+			logger.info("Got crop percentage: {0}".format(cropwidth))
+		if "%" in cropheight:
+			cropheight = int(float(cropheight.split('%')[0])/100*iheight)
+			logger.info("Got crop percentage: {0}".format(cropheight))
+
+		buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2))
+		# buf.set_full(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2, 0, 0)
+
+		logger.debug("CROPPED:{0} {1}".format(buf.spec().width, buf.spec().height))
+
+		# Recalculate input resolution and aspect ratio - since it may have changed with crop
+		iwidth = iwidth - cropwidth / 2
+		iheight = iheight - cropheight / 2
+		iar = float(iwidth) / float(iheight)
+
 	# Apply Resize / Fit
+	# If input and output resolution are the same, do nothing
+	# If output width is bigger or smaller than input width, first resize without changing input aspect ratio
+	# If "fit" is true, 
+	# If output height is different than input height: transform by the output height - input height / 2 to center, 
+	# then crop to change the roi to the output res (crop moves upper left corner)
+
 	identical = owidth == iwidth and oheight == iheight
-	if not identical:
-		print "Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, owidth, oheight, oar) 
+	resize = not identical and resize
+	if resize:
+		logger.info("Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, owidth, oheight, oar))
+
+		if iwidth != owidth:
+			# Perform resize, no change in AR
+			logger.debug("{0}, {1}".format(oheight_noar, px_filter))
+			if px_filter:
+				# (bug): using "lanczos3", 6.0, and upscaling causes artifacts
+				# (bug): dst buf must be assigned or ImageBufAlgo.resize doesn't work
+				buf = oiio.ImageBufAlgo.resize(buf, px_filter, roi=oiio.ROI(0, owidth, 0, oheight_noar))
+			else:
+				buf = oiio.ImageBufAlgo.resize(buf, roi=oiio.ROI(0, owidth, 0, oheight_noar))
+				
+		if fit:
+			# # If fitting is enabled..
+			height_diff = oheight - oheight_noar
+			logger.debug("Height difference: {0} {1} {2}".format(height_diff, oheight, oheight_noar))
+
+			# If we are cropping to a smaller height we need to transform first then crop
+			# If we pad to a taller height, we need to crop first, then transform.
+			if oheight < oheight_noar:
+				# If we are cropping...
+				buf = oiio_transform(buf, 0, height_diff/2)
+				buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
+			elif oheight > oheight_noar:
+				# If we are padding...
+				buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
+				buf = oiio_transform(buf, 0, height_diff/2)
+			
+			
+
 
 		# roi = oiio.ROI(0, owidth, 0, oheight, 0, 1, 0, 3)
-		roi = oiio.ROI(0, owidth, 0, oheight)
+		# roi = oiio.ROI(0, owidth, 0, oheight)
 		
-		# (bug): dst buf must be assigned or ImageBufAlgo.resize doesn't work
 		# buf = oiio.ImageBufAlgo.resize(buf, "lanczos3", 3.0, roi=roi)
 		# buf = oiio.ImageBufAlgo.fit(buf, "lanczos3", 3.0, roi=roi)
-		# buf = oiio.ImageBufAlgo.crop(buf, roi=roi)
 		
 		# (bug): buf.set_origin does not seem to do anything? 
 		# buf.set_origin(0, 400, 0)
@@ -105,18 +191,43 @@ def process_frame(frame, globals_config, codec_config):
 		# (bug): buf.set_full does not take an oiio.RIO object as indicated in the documentation.
 		# buf.set_full(0, 1920, 0, 800, 0, 0)
 
-		if oar != iar and fit:
-			print "specified aspect ratio does not match input aspect ratio:\niar:{0} oar: {1}".format(iar, oar)
-			# buf = oiio_reformat(buf, owidth, oheight)
-			bgbuf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
-			oiio.ImageBufAlgo.zero(bgbuf)
-			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
-			buf = oiio.ImageBufAlgo.over(buf, bgbuf)
-			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+		# if oar != iar and fit:
+		# 	print "specified aspect ratio does not match input aspect ratio:\niar:{0} oar: {1}".format(iar, oar)
+		# 	# buf = oiio_reformat(buf, owidth, oheight)
+		# 	bgbuf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
+		# 	oiio.ImageBufAlgo.zero(bgbuf)
+		# 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+		# 	buf = oiio.ImageBufAlgo.over(buf, bgbuf)
+		# 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 		
 		# else:
 			# Resize without fitting
 			# oiio.ImageBufAlgo.resize(buf, buf, "lanczos3", 6.0, roi=roi)
+
+	# Apply Cropmask if enabled
+	enable_cropmask = globals_config['cropmask']
+	if enable_cropmask:
+		cropmask_ar = globals_config['cropmask_ar']
+		cropmask_opacity = globals_config['cropmask_opacity']
+		if not cropmask_ar or not cropmask_opacity:
+			loggger.error("Cropmask enabled, but no crop specified. Skipping cropmask...")
+		else:
+			cropmask_height = int(round(owidth / cropmask_ar))
+			cropmask_bar = int((oheight - cropmask_height)/2)
+			logger.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, oheight, cropmask_ar, cropmask_bar))
+			
+			cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
+			
+			# Fill with black, alpha = cropmask opacity
+			oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
+
+			# Fill center with black
+			oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, owidth, cropmask_bar, oheight - cropmask_bar))
+			
+			# Merge cropmask buf over image
+			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+			buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
+			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 	
 	buf.write(os.path.splitext(os.path.split(frame)[-1])[0]+".jpg")
 	# write_frame(buf)
@@ -230,7 +341,7 @@ def get_frames(image_sequence):
 			filename, extension = os.path.splitext(filename)
 			filename = remove_framenumbers(filename)
 		else:
-			print "Could not find any frames to operate on!"
+			logger.error("Could not find any frames to operate on!")
 			return None, None, None, None
 	elif os.path.isfile(image_sequence):
 		# Assume it's the first frame of the image sequence
@@ -247,12 +358,12 @@ def get_frames(image_sequence):
 	
 
 	if not frames:
-		print "Could not find any frames to operate on!"
+		logger.error("Could not find any frames to operate on!")
 		return None, None, None, None
 
 	frames.sort()
 	
-	print "\nFound {0} {1} frames named {2} in \n\t{3}".format(len(frames), extension, filename, dirname)
+	logger.info("\nFound {0} {1} frames named {2} in \n\t{3}".format(len(frames), extension, filename, dirname))
 
 	return dirname, filename, extension, frames
 
@@ -293,6 +404,12 @@ def setup():
 	globals_config = config["globals"]
 	codec_config = config["output_profiles"][preset]
 
+	# Set logging detail
+	if globals_config['debug']:
+		logger.setLevel(logging.DEBUG)
+	else:
+		logger.setLevel(logging.INFO)
+
 	# Try to get ocio config from $OCIO env-var if it's not defined
 	if not globals_config['ocioconfig']:
 		if os.getenv("OCIO"):
@@ -304,15 +421,18 @@ def setup():
 			if codec_config[key]:
 				globals_config[key] = value
 
+	logger.debug("Got config:\n\tCodec Config:\t{0}\n\tImage Sequence Path:\n\t\t{1}".format(
+		codec_config['name'], image_sequence))
+
 	# Find image sequence to operate on
 	dirname, filename, extension, frames = get_frames(image_sequence)
 	if not frames:
-		print "Error: No frames found..."
+		logger.error("Error: No frames found...")
 		return
 
 	args = setup_ffmpeg(globals_config, codec_config)
 
-	print "\n\t", args
+	logger.debug("Constructed ffmpeg command:\n\t{0}".format(args))
 
 	# invoke(args, wait=True)
 
