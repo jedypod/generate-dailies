@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import timedelta
 import subprocess
-from . import tc
+from tc import Timecode
 
 """
 	Daily
@@ -39,16 +39,6 @@ from . import tc
 log = logging.getLogger(__name__)
 
 
-
-def oiio_reformat(buf, owidth, oheight):
-	# Reformat an incoming image buffer to the specified width and height: no resize no resampling, just changing the res
-	bgbuf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
-	oiio.ImageBufAlgo.zero(bgbuf)
-	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
-	buf = oiio.ImageBufAlgo.over(buf, bgbuf)
-	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
-	return buf
-
 def oiio_transform(buf, xoffset, yoffset):
 	# transform an image without filtering
 	orig_roi = buf.roi
@@ -72,6 +62,12 @@ def process_frame(frame, framenumber, globals_config, codec_config):
 	iwidth = spec.width
 	iheight = spec.height
 	iar = float(iwidth) / float(iheight)
+
+	bitdepth = codec_config['bitdepth']
+	if bitdepth > 8:
+		pixel_data_type = oiio.UINT16
+	else:
+		pixel_data_type = oiio.UINT8
 
 	px_filter = globals_config['filter']
 	owidth = globals_config['width']
@@ -181,7 +177,7 @@ def process_frame(frame, framenumber, globals_config, codec_config):
 			cropmask_bar = int((oheight - cropmask_height)/2)
 			log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, oheight, cropmask_ar, cropmask_bar))
 			
-			cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
+			cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, pixel_data_type))
 			
 			# Fill with black, alpha = cropmask opacity
 			oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
@@ -198,7 +194,7 @@ def process_frame(frame, framenumber, globals_config, codec_config):
 	return buf
 
 
-def setup_ffmpeg(globals_config, codec_config):
+def setup_ffmpeg(globals_config, codec_config, start_tc):
 	"""
 		Set up ffmpeg command according to codec config. 
 		Return entire command.
@@ -206,12 +202,17 @@ def setup_ffmpeg(globals_config, codec_config):
 
 	if codec_config['bitdepth'] >= 10:
 		ffmpeg_command = "ffmpeg-10bit"
+		pixel_format = "rgb48le"
 	else:
 		ffmpeg_command = "ffmpeg"
+		pixel_format = "rgb24"
 
 	# Set up input arguments for pipe:
-	args = "{0} -y -f rawvideo -pixel_format rgb48le -video_size {1}x{2} -framerate {3} -i pipe:0".format(
-		ffmpeg_command, globals_config['width'], globals_config['height'], globals_config['framerate'])
+	args = "{0} -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
+		ffmpeg_command, pixel_format, globals_config['width'], globals_config['height'], globals_config['framerate'])
+	
+	# Add timecode so that start frame will display correctly in RV etc
+	args += " -timecode {0}".format(start_tc)
 	
 	if codec_config['codec']:
 		args += " -c:v {0}".format(codec_config['codec'])
@@ -335,6 +336,7 @@ def get_frames(image_sequence):
 
 
 def setup():
+	start_time = time.time()
 	# Parse Config File
 	DAILIES_CONFIG = os.getenv("DAILIES_CONFIG")
 	if not DAILIES_CONFIG:
@@ -393,8 +395,6 @@ def setup():
 	if not frames:
 		print("Error: No frames found...")
 		return
-	
-
 
 	# If output width or height is not defined, we need to calculate it from the input
 	owidth = globals_config['width']
@@ -410,7 +410,22 @@ def setup():
 			oheight = int(round(owidth / iar))
 			globals_config['height'] = oheight
 
-	args = setup_ffmpeg(globals_config, codec_config)
+	# Set up timecode and start / end frames 
+	firstframe = frames[0][1]
+	lastframe = frames[-1][1]
+	totalframes = len(frames)
+
+	tc = Timecode(globals_config['framerate'], start_timecode='00:00:00:00')
+	start_tc = tc + firstframe
+
+	bitdepth = codec_config['bitdepth']
+	if bitdepth > 8:
+		pixel_data_type = oiio.UINT16
+	else:
+		pixel_data_type = oiio.UINT8
+
+	# Set up ffmpeg command
+	args = setup_ffmpeg(globals_config, codec_config, start_tc)
 	
 	# Append output movie file to ffmpeg command
 	movie_ext = globals_config['movie_ext']
@@ -423,9 +438,12 @@ def setup():
 
 	# Setup logger
 	logpath = os.path.join(dirname, globals_config['movie_location']) + os.path.splitext(movie_name)[0] + ".log"
+	if os.path.exists(logpath):
+		os.remove(logpath)
 	handler = logging.FileHandler(logpath)
 	handler.setFormatter(
-		logging.Formatter('%(levelname)s \t%(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S'))
+		logging.Formatter('%(levelname)s %(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S')
+		)
 	log.addHandler(handler)
 	if globals_config['debug']:
 		log.setLevel(logging.DEBUG)
@@ -437,40 +455,26 @@ def setup():
 
 	log.info("ffmpeg command:\n\t{0}".format(args))
 	
-	# ffmpeg_log_path = os.path.join(
-	# 	dirname, globals_config['movie_location']) + os.path.splitext(movie_name)[0] + "_ffmpeg.log"
-	# # ffmpeg_log = open(ffmpeg_log_path, 'w')
-
-	# with open(ffmpeg_log_path, 'w') as ffmpeg_log:
-		
+			
 	# Invoke ffmpeg subprocess
 	ffproc = subprocess.Popen(shlex.split(args),
 		stdin=subprocess.PIPE,
 		stdout=subprocess.PIPE)
-	# # Log output of ffmpeg: https://gist.github.com/bgreenlee/1402841
-	# def check_io():
-	# 	ready_to_read = select.select([ffproc.stdout, ffproc.stderr], [], [], 1000)[0]
-	# 	for io in ready_to_read:
-	# 		line = io.readline()
-	# 		log.info(line)
-	# while ffproc.poll() is None:
 
 
-	firstframe = frames[0][1]
-	lastframe = frames[-1][1]
-	totalframes = len(frames)
 	# Loop through every frame, passing the result to the ffmpeg subprocess
-	for i, frame in enumerate(frames):
+	for i, frame in enumerate(frames, 1):
 		framepath, framenumber = frame
-		print("TIMECODE!", )
-		log.info("Processing frame {0:05d}: \t{1} of {2}".format(framenumber, i, totalframes))
-
+		log.info("Processing frame {0:04d}: \t{1:04d} of {2:04d}".format(framenumber, i, totalframes))
+		# elapsed_time = timedelta(seconds = time.time() - start_time)
+		# log.info("Time Elapsed: \t{0}".format(elapsed_time))
+	
 		buf = process_frame(framepath, framenumber, globals_config, codec_config)
-		buf.get_pixels(oiio.UINT16).tofile(ffproc.stdin)
+		buf.get_pixels(pixel_data_type).tofile(ffproc.stdin)
 
-		# result, error = ffproc.communicate()
-		# log.info("{0}".format(result))
 	result, error = ffproc.communicate()
+	elapsed_time = timedelta(seconds = time.time() - start_time)
+	log.info("Total Processing Time: \t{0}".format(elapsed_time))
 
 
 
