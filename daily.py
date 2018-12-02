@@ -3,10 +3,12 @@ from __future__ import with_statement
 import os, sys, yaml
 import OpenImageIO as oiio
 import numpy as np
-import os, sys, re, argparse
-import shlex, subprocess
+import os, sys, re, argparse, shlex
 from glob import glob
 import logging
+
+from subprocess import Popen, PIPE
+from threading import Thread
 
 """
 	Daily
@@ -43,9 +45,6 @@ logger.addHandler(handler)
 
 
 
-def write_frame(buf):
-	# Write the passed image buffer to stdout
-	buf.get_pixels(oiio.UINT16).tofile(sys.stdout)
 
 def oiio_reformat(buf, owidth, oheight):
 	# Reformat an incoming image buffer to the specified width and height: no resize no resampling, just changing the res
@@ -176,34 +175,6 @@ def process_frame(frame, globals_config, codec_config):
 				buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
 				buf = oiio_transform(buf, 0, height_diff/2)
 			
-			
-
-
-		# roi = oiio.ROI(0, owidth, 0, oheight, 0, 1, 0, 3)
-		# roi = oiio.ROI(0, owidth, 0, oheight)
-		
-		# buf = oiio.ImageBufAlgo.resize(buf, "lanczos3", 3.0, roi=roi)
-		# buf = oiio.ImageBufAlgo.fit(buf, "lanczos3", 3.0, roi=roi)
-		
-		# (bug): buf.set_origin does not seem to do anything? 
-		# buf.set_origin(0, 400, 0)
-
-		# (bug): buf.set_full does not take an oiio.RIO object as indicated in the documentation.
-		# buf.set_full(0, 1920, 0, 800, 0, 0)
-
-		# if oar != iar and fit:
-		# 	print "specified aspect ratio does not match input aspect ratio:\niar:{0} oar: {1}".format(iar, oar)
-		# 	# buf = oiio_reformat(buf, owidth, oheight)
-		# 	bgbuf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, oiio.UINT16))
-		# 	oiio.ImageBufAlgo.zero(bgbuf)
-		# 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
-		# 	buf = oiio.ImageBufAlgo.over(buf, bgbuf)
-		# 	oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
-		
-		# else:
-			# Resize without fitting
-			# oiio.ImageBufAlgo.resize(buf, buf, "lanczos3", 6.0, roi=roi)
-
 	# Apply Cropmask if enabled
 	enable_cropmask = globals_config['cropmask']
 	if enable_cropmask:
@@ -229,36 +200,36 @@ def process_frame(frame, globals_config, codec_config):
 			buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
 			oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 	
-	buf.write(os.path.splitext(os.path.split(frame)[-1])[0]+".jpg")
-	# write_frame(buf)
+	# buf.write(os.path.splitext(os.path.split(frame)[-1])[0]+".jpg")
+	return buf
 
 
 
-def invoke(args, wait=False):
-	args = shlex.split(args)
-	try:
-		if (wait):
-			p = subprocess.Popen(
-				args, 
-				stdout = subprocess.PIPE)
-			p.wait()
-		else:
-			p = subprocess.Popen(
-				args, 
-				stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = None, close_fds = True)
+# def invoke(args, wait=False):
+# 	args = shlex.split(args)
+# 	try:
+# 		if (wait):
+# 			p = Popen(
+# 				args, 
+# 				stdin = PIPE, stdout = logger.info, stderr = logger.error, close_fds = True)
+# 			p.wait()
+# 		else:
+# 			p = Popen(
+# 				args, 
+# 				stdin = PIPE, stdout = logger.info, stderr = logger.error, close_fds = True)
 
-		(result, error) = p.communicate()
+# 		(result, error) = p.communicate()
 		
-	except subprocess.CalledProcessError as e:
-		sys.stderr.write(
-			"common::run_command() : [ERROR]: output = %s, error code = %s\n" 
-			% (e.output, e.returncode))
-	return result 
+	# except CalledProcessError as e:
+	# 	logger.error(
+	# 		"common::run_command() : [ERROR]: output = %s, error code = %s\n" 
+	# 		% (e.output, e.returncode))
+	# return result
 """
 
 subprocess with pipe
-ps = subprocess.Popen(('ps', '-A'), stdout=subprocess.PIPE)
-output = subprocess.check_output(('grep', 'process_name'), stdin=ps.stdout)
+ps = Popen(('ps', '-A'), stdout=PIPE)
+output = check_output(('grep', 'process_name'), stdin=ps.stdout)
 ps.wait()
 
 """
@@ -276,7 +247,7 @@ def setup_ffmpeg(globals_config, codec_config):
 		ffmpeg_command = "ffmpeg"
 
 	# Set up input arguments for pipe:
-	args = "{0} -f rawvideo -pixel_format rgb48le -video_size {1}x{2} -framerate {3} -i pipe:0".format(
+	args = "{0} -y -f rawvideo -pixel_format rgb48le -video_size {1}x{2} -framerate {3} -i pipe:0".format(
 		ffmpeg_command, globals_config['width'], globals_config['height'], globals_config['framerate'])
 	
 	if codec_config['codec']:
@@ -368,6 +339,10 @@ def get_frames(image_sequence):
 	return dirname, filename, extension, frames
 
 
+def write_frame(buf, pipe):
+	buf.get_pixels(oiio.UINT16).tofile(pipe)
+	pipe.close()
+
 def setup():
 	# Parse Config File
 	DAILIES_CONFIG = os.getenv("DAILIES_CONFIG")
@@ -375,12 +350,13 @@ def setup():
 		DAILIES_CONFIG = "/mnt/cave/dev/__pipeline-tools/generate_dailies/generate_dailies/DAILIES_CONFIG.yaml"
 
 	# Get Config
-	with open(DAILIES_CONFIG, 'r') as configfile:
-		config = yaml.load(configfile)
+	if os.path.isfile(DAILIES_CONFIG):
+		with open(DAILIES_CONFIG, 'r') as configfile:
+			config = yaml.load(configfile)
+	else:
+		logger.error("Could not find config file {0}".format(DAILIES_CONFIG))
+		return
 
-	# for section in config:
-		# print(section)
-		# print config[section]
 	# Get list of possible output profiles from config.
 	output_profiles = config["output_profiles"].keys()
 	output_profiles.sort()
@@ -424,23 +400,70 @@ def setup():
 	logger.debug("Got config:\n\tCodec Config:\t{0}\n\tImage Sequence Path:\n\t\t{1}".format(
 		codec_config['name'], image_sequence))
 
+
 	# Find image sequence to operate on
 	dirname, filename, extension, frames = get_frames(image_sequence)
 	if not frames:
 		logger.error("Error: No frames found...")
 		return
 
+	# If output width or height is not defined, we need to calculate it from the input
+	owidth = globals_config['width']
+	oheight = globals_config['height']
+	if not owidth or not oheight:
+		buf = oiio.ImageBuf(frames[0])
+		spec = buf.spec()
+		iar = float(spec.width) / float(spec.height)
+		if not owidth:
+			owidth = spec.width
+			globals_config['width'] = owidth
+		if not oheight:
+			oheight = int(round(owidth / iar))
+			globals_config['height'] = oheight
+
 	args = setup_ffmpeg(globals_config, codec_config)
+
+	# Append output movie file to args
+	# args += " {0}".format(os.path.join(dirname, filename) + ".mov")
+	args += " {0}".format(dirname + ".mov")
 
 	logger.debug("Constructed ffmpeg command:\n\t{0}".format(args))
 
 	# invoke(args, wait=True)
+	args = shlex.split(args)
 
-	# Loop through all frames and process them with oiio, and write them to stdout
+	ffproc = Popen(args,
+		stdin=PIPE,
+		stdout=PIPE)
 	for frame in frames:
-		process_frame(frame, globals_config, codec_config)
+		buf = process_frame(frame, globals_config, codec_config)
+		buf.get_pixels(oiio.UINT16).tofile(ffproc.stdin)
+		# output = ffproc.stdout.readline()
+		# print output.rstrip()
+	result = ffproc.communicate()[0]
+	print result
 
-	
+	# # with open('cache', 'w+') as cache:
+	# ffmpeg_in = None
+	# ffmp = Popen(args, stdin = PIPE, stdout = PIPE, bufsize=1)
+	# ffmp.wait()
+
+	# # Loop through all frames and process them with oiio, and write them to stdout
+	# for frame in frames:
+	# 	buf = process_frame(frame, globals_config, codec_config)
+	# 	Thread(target=write_frame, args=[buf, ffmp.stdin]).start()
+	# 	try: # read output line by line as soon as the child flushes its stdout buffer
+	# 	    for line in iter(ffmp.stdout.readline, b''):
+	# 	        print line.strip()[::-1] # print reversed lines
+	# 	finally:
+	# 	    ffmp.stdout.close()
+	# 	    ffmp.wait()
+	# 	# write_frame(buf, pipe)
+	# 	# buf.get_pixels(oiio.UINT16).tofile(cache)
+	# 	# (result, error) = ffmp.communicate()
+	# 	# print result
+
+
 
 
 if __name__=="__main__":
