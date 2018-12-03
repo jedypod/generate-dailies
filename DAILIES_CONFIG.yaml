@@ -10,6 +10,8 @@ globals:
   ociodisplay: ACES
   # ocio view transform 
   ocioview: RRT
+
+  # Not implemented yet
   ociocolorconvert: 
   ociolook:   
 
@@ -17,21 +19,21 @@ globals:
   ## Reformatting and Cropping
   ###############################################
   # If debug is true, no encoding will be done and there will be debug prints 
-  debug: true
+  debug: false
   # Number of pixels to crop from width and height before resizing to dailies res. 
   # You can enter an int pixel number, or a percentage like  5% or 6.25%
   cropwidth:
   cropheight: 
   # width and height are the resolution to reformat to. 
-  width: 2048
-  height:
+  width: 1920
+  height: 1080
   # If fit=no, height will be ignored and the aspect ratio of the input will be preserved.
   fit: true
 
   # Enable an oiio pixel filter to use for scaling. Default is good: blackman-harris for scaling up, lanczos3 for scaling down.
   # 
   # Possible filters: https://github.com/OpenImageIO/oiio/blob/master/src/libutil/filter.cpp
-  # // name             dim width fixedwidth scalable separable
+  #     // name              dim width fixedwidth scalable separable
   #     { "box",             1,   1,    false,    true,     true },
   #     { "triangle",        1,   2,    false,    true,     true },
   #     { "gaussian",        1,   3,    false,    true,     true },
@@ -46,7 +48,6 @@ globals:
   #     { "keys",            1,   4,    false,    true,     true },
   #     { "simon",           1,   4,    false,    true,     true },
   #     { "rifman",          1,   4,    false,    true,     true }
-  #     // clang-format on
   filter:
 
   # Output framerate. film=24, hdtv=23.98 = 24000/1001, pal=25, ntsc=30000/1001
@@ -58,7 +59,13 @@ globals:
   # Example: "lut3d=${lut},scale=w=${width}:h=${height}:force_original_aspect_ratio=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2"
   vf: 
   # Choose which output profile to use by default. See options below.
-  output_profile: h264_hq
+  output_codec: h264_hq
+  # Movie location is a relative or absolute path for where to place the daily movie
+  # For example ../ will place it in the directory above the frames. /place/output will place it here.
+  movie_location: ../
+  movie_ext: mov
+  # If true, appends "_codec name" to the movie file
+  movie_append_codec: true
 
 
   ###############################################
@@ -66,8 +73,8 @@ globals:
   ###############################################
   # Enable an overlay to crop the pixels to a specific aspect ratio. 
   # For example to do a hard crop to 2.35 set the cropmask-ar to 2.35 and the crop mask opacity to 1.0
-  cropmask: true
-  cropmask_ar: 2.35
+  cropmask: false
+  cropmask_ar: 1.85
   cropmask_opacity: 1.0
 
   # Choose the font file to use
@@ -76,132 +83,160 @@ globals:
 
 
 # Output profile definitions. 
-output_profiles:
-    h264_hq:
-      name: h264_hq
-      width:
-      height:
-      fit:
-      framerate:
-      codec: libx264
-      profile: high444
-      qscale:
-      preset: veryslow
-      keyint: 1
-      bframes: 0
-      tune: film
-      crf: 13
-      pix_fmt: yuv444p10le
-      vf: colormatrix=bt601:bt709
-      bitdepth: 10
-      vendor:
-      metadata_s:
-      bitrate:
-    h264_lq:
-      name: h264_lq
-      width:
-      height:
-      fit:
-      framerate:
-      codec: libx264
-      profile: high
-      qscale:
-      preset: veryslow
-      keyint: 1
-      bframes: 0
-      tune: film
-      crf: 17
-      pix_fmt: yuv420p
-      vf: colormatrix=bt601:bt709
-      bitdepth: 8
-      vendor:
-      metadata_s:
-      bitrate:
-    prores_4444:
-      name: prores_4444
-      width:
-      height:
-      fit:
-      framerate:
-      codec: prores_ks
-      profile: 4
-      qscale: 7
-      preset: 
-      keyint: 
-      bframes:
-      tune: 
-      crf:
-      pix_fmt: yuva444p10le
-      vf: colormatrix=bt601:bt709
-      bitdepth: 10
-      vendor: ap10
-      metadata_s: encoder="Apple ProRes 4444"
-      bitrate:
-    prores_422hq:
-      name: prores_422hq
-      width:
-      height:
-      fit:
-      framerate:
-      codec: prores_ks
-      profile: 3
-      qscale: 7
-      preset: 
-      keyint: 
-      bframes:
-      tune: 
-      crf:
-      pix_fmt: yuva444p10le
-      vf: colormatrix=bt601:bt709
-      bitdepth: 10
-      vendor: ap10
-      metadata_s: encoder="Apple ProRes 422 HQ"
-      bitrate:
-    prores_422:
-    dnxhd_36:
-    dnxhd_175:
-      # http://forum.selur.de/topic1348-dnxhr-encoding.html
-      # 1920x1080p  175 10  24000/1001
-      name: dnxhd_175
-      width:
-      height:
-      fit:
-      framerate: 24000/1001
-      codec: dnxhd
-      profile: dnxhd
-      qscale:
-      preset: 
-      keyint:
-      bframes:
-      tune:
-      crf:
-      pix_fmt: yuva444p10le
-      vf: colormatrix=bt601:bt709
-      bitdepth: 10
-      vendor:
-      metadata_s:
-      bitrate: 175M
-    dnxhr_hqx:
-      # https://askubuntu.com/questions/907398/how-to-convert-a-video-with-ffmpeg-into-the-dnxhd-dnxhr-format
-      # dnxhd, dnxhr_444, dnxhr_hqx, dnxhr_hq, dnxhr_sq, dnxhr_lb
-      # 12 bit 4:2:2
-      name: dnxhr_hqx
-      width:
-      height:
-      fit:
-      framerate:
-      codec: dnxhd
-      profile: dnxhr_hqx
-      qscale:
-      preset: 
-      keyint: 
-      bframes:
-      tune: 
-      crf:
-      pix_fmt: yuva444p10le
-      vf: colormatrix=bt601:bt709
-      bitdepth: 12
-      vendor:
-      metadata_s:
-      bitrate:
-    mjpeg:
+output_codecs:
+  h264_hq:
+    name: h264_hq
+    width:
+    height:
+    fit:
+    framerate:
+    codec: libx264
+    profile: high444
+    qscale:
+    preset: slower
+    keyint: 1
+    bframes: 0
+    tune: film
+    crf: 13
+    pix_fmt: yuv444p10le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 10
+    vendor:
+    metadata_s:
+    bitrate:
+  h264_lq:
+    name: h264_lq
+    width:
+    height:
+    fit:
+    framerate:
+    codec: libx264
+    profile: high
+    qscale:
+    preset: slower
+    keyint: 1
+    bframes: 0
+    tune: film
+    crf: 17
+    pix_fmt: yuv420p
+    vf: colormatrix=bt601:bt709
+    bitdepth: 8
+    vendor:
+    metadata_s:
+    bitrate:
+    movie_ext: mp4
+  prores_4444:
+    name: prores_4444
+    width:
+    height:
+    fit:
+    framerate:
+    codec: prores_ks
+    profile: 4
+    qscale: 7
+    preset: 
+    keyint: 
+    bframes:
+    tune: 
+    crf:
+    pix_fmt: yuva444p10le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 10
+    vendor: ap10
+    metadata_s: encoder="Apple ProRes 4444"
+    bitrate:
+  prores_422hq:
+    name: prores_422hq
+    width:
+    height:
+    fit:
+    framerate:
+    codec: prores_ks
+    profile: 3
+    qscale: 7
+    preset: 
+    keyint: 
+    bframes:
+    tune: 
+    crf:
+    pix_fmt: yuva444p10le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 10
+    vendor: ap10
+    metadata_s: encoder="Apple ProRes 422 HQ"
+    bitrate:
+  prores_422:
+  dnxhd_36:
+  dnxhd_175:
+    # http://forum.selur.de/topic1348-dnxhr-encoding.html
+    # 1920x1080p  175 10  24000/1001
+    name: dnxhd_175
+    width: 1920
+    height: 1080
+    fit: yes
+    framerate: 24000/1001
+    codec: dnxhd
+    profile: dnxhd
+    qscale:
+    preset: 
+    keyint:
+    bframes:
+    tune:
+    crf:
+    pix_fmt: yuva422p10le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 10
+    vendor:
+    metadata_s:
+    bitrate: 175M
+  dnxhr_hqx:
+    # https://askubuntu.com/questions/907398/how-to-convert-a-video-with-ffmpeg-into-the-dnxhd-dnxhr-format
+    # dnxhd, dnxhr_444, dnxhr_hqx, dnxhr_hq, dnxhr_sq, dnxhr_lb
+    # 12 bit 4:2:2
+    name: dnxhr_hqx
+    width:
+    height:
+    fit:
+    framerate:
+    codec: dnxhd
+    profile: dnxhr_hqx
+    qscale:
+    preset: 
+    keyint: 
+    bframes:
+    tune: 
+    crf:
+    pix_fmt: yuv422p12le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 12
+    vendor:
+    metadata_s:
+    bitrate: 175M
+  mjpeg:
+  # Special codec to concatenate input images into a quicktime container, for example if you want to 
+  # turn a jpeg sequence into a photo jpeg quicktime
+  concat:
+    name: concat
+    width:
+    height:
+    fit:
+    framerate:
+    codec: copy
+    profile:
+    qscale:
+    preset: 
+    keyint: 
+    bframes:
+    tune: 
+    crf:
+    pix_fmt:
+    vf:
+    bitdepth:
+    vendor:
+    metadata_s:
+    bitrate:
+
+input_codecs:
+  # Default - assumes an exr floating point input image
+  imgseq_float:
+

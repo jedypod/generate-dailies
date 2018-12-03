@@ -1,0 +1,519 @@
+#!/usr/bin/env python
+from __future__ import with_statement
+from __future__ import print_function
+from __future__ import division
+
+import os, sys, yaml
+import OpenImageIO as oiio
+import numpy as np
+import os, sys, re, argparse, shlex
+from glob import glob
+import logging
+import time
+from datetime import timedelta
+import subprocess
+from tc import Timecode
+import pyseq
+
+"""
+	Daily
+	---------------------
+	This is a program to render a dailies movie from an input image sequence (jpegs or exrs).
+	It reads from a configuration file to define things like resize, color transforms, padding, 
+	text overalys, slate frames and so forth.
+
+"""
+"""
+	Commandline python program to take an openexr image sequence, apply an ocio display transform, resize, 
+	and output to sdtout as raw uint16 byte data.
+	Inputs:
+		image sequence in /path/to/imagename.%05d.exr format
+		optional: framerange to use starframe-endframe
+		ocio display and ocio view to apply.
+		ocio config to use
+		resize width
+		resize pad to fit (optional)
+	Example Command:
+	./exrpipe -i '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/monkey_test/M07-2031.%05d.exr' -s 190 -e 200 -d ACES -v RRT -r 2048x1152 | ffmpeg-10bit -f rawvideo -pixel_format rgb48le -video_size 1920x1080 -framerate 24 -i pipe:0 
+	-c:v libx264 -profile:v high444 -preset veryslow -g 1 -tune film -crf 13 -pix_fmt yuv444p10le -vf "colormatrix=bt601:bt709" test.mov
+"""
+"""
+This is an example of Google style.
+
+Args:
+    param1: This is the first param.
+    param2: This is a second param.
+
+Returns:
+    This is a description of what is returned.
+
+Raises:
+    KeyError: Raises an exception.
+"""
+
+
+DAILIES_CONFIG_DEFAULT = "/mnt/cave/dev/__pipeline-tools/generate_dailies/generate_dailies/DAILIES_CONFIG.yaml"
+DEFAULT_CODEC = 'h264_hq'
+
+log = logging.getLogger(__name__)
+
+
+class GenerateDaily():
+
+	def __init__(self):
+		"""
+		Initial setup: gather and validate config and input data.
+
+		"""
+
+		self.start_time = time.time()
+		
+		# Parse Config File
+		DAILIES_CONFIG = os.getenv("DAILIES_CONFIG")
+		if not DAILIES_CONFIG:
+			DAILIES_CONFIG = DAILIES_CONFIG_DEFAULT
+
+		# Get Config file data
+		if os.path.isfile(DAILIES_CONFIG):
+			with open(DAILIES_CONFIG, 'r') as configfile:
+				config = yaml.load(configfile)
+		else:
+			print("Error: Could not find config file {0}".format(DAILIES_CONFIG))
+			return
+
+		# Get list of possible output profiles from config.
+		output_codecs = config["output_codecs"].keys()
+		output_codecs.sort()
+
+		# Parse input arguments
+		parser = argparse.ArgumentParser(description='Process given exr image sequence with ocio display, resize and output to stdout.')
+		parser.add_argument("-i", "--input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
+		parser.add_argument('-c', "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
+		args = parser.parse_args()
+
+		input_path = args.input_path
+		codec = args.codec
+
+		# Use current directory if no input path specified
+		if not input_path:
+			input_path = os.getcwd()
+
+		# Gather image sequence from input path
+		self.image_sequence = self._get_imgseqs(input_path)
+
+		if not self.image_sequence:
+			print("No image sequence found! Exiting...")
+			return
+
+		# Get Config dicts for globals and the "codec" config from the config file
+		self.globals_config = config["globals"]
+
+
+		# Use default output codec from config if none specified.
+		if not codec:
+			config_default_codec = self.globals_config['output_codec']
+			if config_default_codec:
+				codec = config_default_codec
+			else:
+				codec = DEFAULT_CODEC
+		if codec not in output_codecs:
+			print("Error: invalid codec specified. Possible options are \n\t{0}".format("\n\t".join(output_codecs)))
+			return
+
+		self.codec_config = config["output_codecs"][codec]
+		self._validate_config()
+
+		
+		# Set up movie file location and naming
+		
+		# Crop separating character from sequence basename if there is one.
+		seq_basename = self.image_sequence.head()
+		
+		if seq_basename.endswith(self.image_sequence.parts[-2]):
+			seq_basename = seq_basename[:-1]
+			print("SEQUENCE BASENAME", seq_basename)
+
+		movie_ext = self.globals_config['movie_ext']
+
+		# Create full movie filename
+		# Append codec to dailies movie name if requested
+		if self.globals_config['movie_append_codec']:
+			movie_basename = seq_basename + "_" + self.codec_config['name']
+			movie_filename = movie_basename + "." + movie_ext
+		else:
+			movie_basename = seq_basename
+			movie_filename = seq_basename + "." + movie_ext
+		
+		# Handle relative / absolute paths for movie location
+		movie_location = self.globals_config['movie_location']
+		if movie_location.startswith('/'):
+			self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_filename)
+		else:
+			self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
+
+		# Set up Logger
+		log_fullpath = os.path.splitext(self.movie_fullpath)[0] + ".log"
+		if os.path.exists(log_fullpath):
+			os.remove(log_fullpath)
+		handler = logging.FileHandler(log_fullpath)
+		handler.setFormatter(
+			logging.Formatter('%(levelname)s %(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S')
+			)
+		log.addHandler(handler)
+		if self.globals_config['debug']:
+			log.setLevel(logging.DEBUG)
+		else:
+			log.setLevel(logging.INFO)
+		log.debug("Got config:\n\tCodec Config:\t{0}\n\tImage Sequence Path:\n\t\t{1}".format(
+			self.codec_config['name'], self.image_sequence.path()))
+
+
+		# Set pixel_data_type based on config bitdepth
+		if self.codec_config['bitdepth'] > 8:
+			self.pixel_data_type = oiio.UINT16
+		else:
+			self.pixel_data_type = oiio.UINT8
+
+		tc = Timecode(self.globals_config['framerate'], start_timecode='00:00:00:00')
+		self.start_tc = tc + self.image_sequence.start()
+
+		ffmpeg_args = self.setup_ffmpeg()
+
+		log.info("ffmpeg command:\n\t{0}".format(ffmpeg_args))
+
+		# Invoke ffmpeg subprocess
+		ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+			stdin=subprocess.PIPE,
+			stdout=subprocess.PIPE)
+
+		# Loop through every frame, passing the result to the ffmpeg subprocess
+		for i, frame in enumerate(self.image_sequence, 1):
+			log.info("Processing frame {0:04d}: \t{1:04d} of {2:04d}".format(int(frame.number), i, self.image_sequence.length()))
+			# elapsed_time = timedelta(seconds = time.time() - start_time)
+			# log.info("Time Elapsed: \t{0}".format(elapsed_time))
+			buf = self.process_frame(frame)
+			buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
+
+		result, error = ffproc.communicate()
+		elapsed_time = timedelta(seconds = time.time() - self.start_time)
+		log.info("Total Processing Time: \t{0}".format(elapsed_time))
+
+
+	def _get_imgseqs(self, input_path):
+		"""
+		Get list of image sequence objects given a path on disk.
+
+		Args:
+		    input_path: Input file path. Can be a directory or file or %05d / ### style 
+		
+		Returns:
+			An image sequence object.
+		"""
+
+		if os.path.isdir(input_path):
+			# Find all image sequences in the directory
+			image_sequences = pyseq.get_sequences(input_path)
+
+		elif os.path.isfile(input_path):
+			# Assume it's the first frame of the image sequence
+			image_sequences = pyseq.get_sequences(input_path)
+		else:
+			# Assume this is a %05d or ### image sequence. Use the parent directory if it exists.
+			dirname, filename = os.path.split(input_path)
+			if os.path.isdir(dirname):
+				image_sequences = pyseq.get_sequences(dirname)
+			else:
+				image_sequences = None
+
+		if image_sequences:
+			if len(image_sequences) > 1:
+				image_sequence = image_sequences[0]
+				log.warning("Found more than one image sequence! Using only the first one: \n\t{0}".format(image_sequence.path()))
+			elif len(image_sequences) == 1:
+				image_sequence = image_sequences[0]
+			if image_sequence.missing():
+				log.warning("This image sequence has missing frames: \n\t{0}".format(' '.join(image_sequence.missing())))
+			log.info("\nFound {0} {1} frames: \n\t{2}".format(image_sequence.frames(), image_sequence.tail(), image_sequence.path()))
+			return image_sequence
+		else:
+			log.error("Could not find any Image Sequences!!!")
+			return None
+
+	def _validate_config(self):
+		"""
+		Validate config information.
+		Directly modifies the self.globals_config and self.codec_config vars
+		
+		Returns:
+			None
+		"""
+
+		# Try to get ocio config from $OCIO env-var if it's not defined
+		if not self.globals_config['ocioconfig']:
+			if os.getenv("OCIO"):
+				self.globals_config['ocioconfig'] = os.getenv("OCIO")
+
+		# Anything with the same name in the codec config overrides the globals
+		for key, value in self.codec_config.iteritems():
+			if key in self.globals_config:
+				if self.codec_config[key]:
+					self.globals_config[key] = value
+
+		# If output width or height is not defined, we need to calculate it from the input images
+		owidth = self.globals_config['width']
+		oheight = self.globals_config['height']
+		if not owidth or not oheight:
+			buf = oiio.ImageBuf(image_sequence[0].path)
+			spec = buf.spec()
+			iar = float(spec.width) / float(spec.height)
+			if not owidth:
+				owidth = spec.width
+				self.globals_config['width'] = owidth
+			if not oheight:
+				oheight = int(round(owidth / iar))
+				self.globals_config['height'] = oheight
+			buf.close()
+
+	def setup_ffmpeg(self):
+		"""
+		Constructs an ffmpeg command based on the given codec config.
+		
+		Returns:
+			A string containing the entire ffmpeg command to run.
+		"""
+
+		if self.codec_config['bitdepth'] >= 10:
+			ffmpeg_command = "ffmpeg-10bit"
+			pixel_format = "rgb48le"
+		else:
+			ffmpeg_command = "ffmpeg"
+			pixel_format = "rgb24"
+
+		# Set up input arguments for pipe:
+		args = "{0} -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
+			ffmpeg_command, pixel_format, self.globals_config['width'], self.globals_config['height'], self.globals_config['framerate'])
+		
+		# Add timecode so that start frame will display correctly in RV etc
+		args += " -timecode {0}".format(self.start_tc)
+		
+		if self.codec_config['codec']:
+			args += " -c:v {0}".format(self.codec_config['codec'])
+		
+		if self.codec_config['profile']:
+			args += " -profile:v {0}".format(self.codec_config['profile'])
+
+		if self.codec_config['qscale']:
+			args += " -qscale:v {0}".format(self.codec_config['qscale'])
+
+		if self.codec_config['preset']:
+			args += " -preset {0}".format(self.codec_config['preset'])
+
+		if self.codec_config['keyint']:
+			args += " -g {0}".format(self.codec_config['keyint'])
+
+		if self.codec_config['bframes']:
+			args += " -bf {0}".format(self.codec_config['bframes'])
+
+		if self.codec_config['tune']:
+			args += " -tune {0}".format(self.codec_config['tune'])
+
+		if self.codec_config['crf']:
+			args += " -crf {0}".format(self.codec_config['crf'])
+		
+		if self.codec_config['pix_fmt']:
+			args += " -pix_fmt {0}".format(self.codec_config['pix_fmt'])
+
+		if self.globals_config['framerate']:
+			args += " -r {0}".format(self.globals_config['framerate'])
+
+		if self.codec_config['vf']:
+			args += " -vf {0}".format(self.codec_config['vf'])
+
+		if self.codec_config['vendor']:
+			args += " -vendor {0}".format(self.codec_config['vendor'])
+
+		if self.codec_config['metadata_s']:
+			args += " -metadata:s {0}".format(self.codec_config['metadata_s'])
+
+		if self.codec_config['bitrate']:
+			args += " -b:v {0}".format(self.codec_config['bitrate'])
+
+		# Finally add the output movie file path
+		args += " {0}".format(self.movie_fullpath)
+
+		return args
+
+
+	def process_frame(self, frame):
+		"""
+		Apply all color and reformat operations to input image, then write the frame to stdout
+
+		Args:
+		    frame: pyseq Item object describing the current frame.
+		    framenumber: the current frame number
+
+		Returns:
+		    Returns an oiio.ImageBuf object which holds the altered image data.
+		"""
+
+		# Setup image buffer
+		buf = oiio.ImageBuf(frame.path)
+		spec = buf.spec()
+		
+		# Get Codec Config and gather information
+		iwidth = spec.width
+		iheight = spec.height
+		iar = float(iwidth) / float(iheight)
+
+		bitdepth = self.codec_config['bitdepth']
+		if bitdepth > 8:
+			pixel_data_type = oiio.UINT16
+		else:
+			pixel_data_type = oiio.UINT8
+
+		px_filter = self.globals_config['filter']
+		owidth = self.globals_config['width']
+		oheight = self.globals_config['height']
+		fit = self.globals_config['fit']
+		cropwidth = self.globals_config['cropwidth']
+		cropheight = self.globals_config['cropheight']
+
+		# Remove alpha channel
+		oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+
+		# Apply OCIO Display
+		ocioconfig = self.globals_config['ocioconfig']
+		ociocolorconvert = self.globals_config['ociocolorconvert']
+		ociolook = self.globals_config['ociolook']
+		ociodisplay = self.globals_config['ociodisplay']
+		ocioview = self.globals_config['ocioview']
+		if ocioconfig:
+			if ociocolorconvert:
+				oiio.ImageBufAlgo.ociocolorconvert(buf, buf, ociocolorconvert, ocioview, colorconfig=ocioconfig)
+			if ociolook:
+				oiio.ImageBufAlgo.ociolook(buf, buf, ociolook, ocioview, colorconfig=ocioconfig)
+			if ociodisplay and ocioview: 
+				# Apply OCIO display transform onto specified image buffer
+				oiio.ImageBufAlgo.ociodisplay(buf, buf, ociodisplay, ocioview, colorconfig=ocioconfig)
+
+
+		# Setup for width and height
+		if not owidth:
+			resize = False
+		else:
+			resize = True
+			# If no output height specified, resize keeping aspect ratio, long side = width - calc height
+			oheight_noar = int(owidth / iar)
+			if not oheight:
+				oheight = oheight_noar
+			oar = float(owidth) / float(oheight)
+
+
+		# Apply cropwidth / cropheight to remove pixels on edges before applying resize
+		if cropwidth or cropheight:
+			# Handle percentages
+			if "%" in cropwidth:
+				cropwidth = int(float(cropwidth.split('%')[0])/100*iwidth)
+				log.info("Got crop percentage: {0}".format(cropwidth))
+			if "%" in cropheight:
+				cropheight = int(float(cropheight.split('%')[0])/100*iheight)
+				log.info("Got crop percentage: {0}".format(cropheight))
+
+			buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2))
+			# buf.set_full(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2, 0, 0)
+
+			log.debug("CROPPED:{0} {1}".format(buf.spec().width, buf.spec().height))
+
+			# Recalculate input resolution and aspect ratio - since it may have changed with crop
+			iwidth = iwidth - cropwidth / 2
+			iheight = iheight - cropheight / 2
+			iar = float(iwidth) / float(iheight)
+
+		# Apply Resize / Fit
+		# If input and output resolution are the same, do nothing
+		# If output width is bigger or smaller than input width, first resize without changing input aspect ratio
+		# If "fit" is true, 
+		# If output height is different than input height: transform by the output height - input height / 2 to center, 
+		# then crop to change the roi to the output res (crop moves upper left corner)
+
+		identical = owidth == iwidth and oheight == iheight
+		resize = not identical and resize
+		if resize:
+			log.info("Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, owidth, oheight, oar))
+
+			if iwidth != owidth:
+				# Perform resize, no change in AR
+				log.debug("{0}, {1}".format(oheight_noar, px_filter))
+				if px_filter:
+					# (bug): using "lanczos3", 6.0, and upscaling causes artifacts
+					# (bug): dst buf must be assigned or ImageBufAlgo.resize doesn't work
+					buf = oiio.ImageBufAlgo.resize(buf, px_filter, roi=oiio.ROI(0, owidth, 0, oheight_noar))
+				else:
+					buf = oiio.ImageBufAlgo.resize(buf, roi=oiio.ROI(0, owidth, 0, oheight_noar))
+					
+			if fit:
+				# # If fitting is enabled..
+				height_diff = oheight - oheight_noar
+				log.debug("Height difference: {0} {1} {2}".format(height_diff, oheight, oheight_noar))
+
+				# If we are cropping to a smaller height we need to transform first then crop
+				# If we pad to a taller height, we need to crop first, then transform.
+				if oheight < oheight_noar:
+					# If we are cropping...
+					buf = oiio_transform(buf, 0, height_diff/2)
+					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
+				elif oheight > oheight_noar:
+					# If we are padding...
+					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
+					buf = oiio_transform(buf, 0, height_diff/2)
+				
+		# Apply Cropmask if enabled
+		enable_cropmask = self.globals_config['cropmask']
+		if enable_cropmask:
+			cropmask_ar = self.globals_config['cropmask_ar']
+			cropmask_opacity = self.globals_config['cropmask_opacity']
+			if not cropmask_ar or not cropmask_opacity:
+				loggger.error("Cropmask enabled, but no crop specified. Skipping cropmask...")
+			else:
+				cropmask_height = int(round(owidth / cropmask_ar))
+				cropmask_bar = int((oheight - cropmask_height)/2)
+				log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, oheight, cropmask_ar, cropmask_bar))
+				
+				cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, pixel_data_type))
+				
+				# Fill with black, alpha = cropmask opacity
+				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
+
+				# Fill center with black
+				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, owidth, cropmask_bar, oheight - cropmask_bar))
+				
+				# Merge cropmask buf over image
+				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+				buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
+				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+		
+		# buf.write(os.path.splitext(os.path.split(frame)[-1])[0]+".jpg")
+		return buf
+
+	def oiio_transform(self, buf, xoffset, yoffset):
+		"""
+		Convenience function to reposition an image.
+
+		Args:
+		    buf: oiio.ImageBuf object representing the image to be transformed.
+		    xoffset: X offset in pixels
+		    yoffset: Y offset in pixels
+
+		Returns:
+		    Returns the modified oiio.ImageBuf object which holds the altered image data.
+		"""
+		orig_roi = buf.roi
+		buf.specmod().x += xoffset
+		buf.specmod().y += yoffset
+		buf_trans = oiio.ImageBuf()
+		oiio.ImageBufAlgo.crop(buf_trans, buf, orig_roi)
+		return buf_trans
+
+
+if __name__=="__main__":
+	daily = GenerateDaily()
