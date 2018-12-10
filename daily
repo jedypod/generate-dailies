@@ -10,7 +10,7 @@ import os, sys, re, argparse, shlex
 from glob import glob
 import logging
 import time
-from datetime import timedelta
+import datetime
 import subprocess
 from tc import Timecode
 import pyseq
@@ -41,19 +41,22 @@ import pyseq
 This is an example of Google style.
 
 Args:
-    param1: This is the first param.
-    param2: This is a second param.
+	param1: This is the first param.
+	param2: This is a second param.
 
 Returns:
-    This is a description of what is returned.
+	This is a description of what is returned.
 
 Raises:
-    KeyError: Raises an exception.
+	KeyError: Raises an exception.
 """
 
 
-DAILIES_CONFIG_DEFAULT = "/mnt/cave/dev/__pipeline-tools/generate_dailies/generate_dailies/DAILIES_CONFIG.yaml"
+DAILIES_CONFIG_DEFAULT = "/mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/DAILIES_CONFIG.yaml"
 DEFAULT_CODEC = 'h264_hq'
+DEFAULT_DAILIES_PROFILE = 'internal'
+
+DEBUG = True
 
 log = logging.getLogger(__name__)
 
@@ -85,21 +88,38 @@ class GenerateDaily():
 		output_codecs = config["output_codecs"].keys()
 		output_codecs.sort()
 
+		# Get list of dailies profiles
+		dailies_profiles = config["profiles"].keys()
+
 		# Parse input arguments
 		parser = argparse.ArgumentParser(description='Process given exr image sequence with ocio display, resize and output to stdout.')
 		parser.add_argument("-i", "--input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
-		parser.add_argument('-c', "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
+		parser.add_argument("-c", "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
+		parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles)))
+		parser.add_argument("-t", '--text', help="Text elements and contents to add: e.g. \n\t\"artist: Jed Smith | comment: this is stupid man|")
 		args = parser.parse_args()
 
 		input_path = args.input_path
 		codec = args.codec
+		input_dailies_profile = args.profile
+		texts = args.text.split('|')
+
+		# Assemble text elements contents dict
+		self.text = {}
+		for text in texts:
+			key, value = text.split(':')
+			key = key.strip()
+			value = value.strip()
+			self.text[key] = value
+		
+
 
 		# Use current directory if no input path specified
 		if not input_path:
 			input_path = os.getcwd()
 
 		# Gather image sequence from input path
-		self.image_sequence = self._get_imgseqs(input_path)
+		self.image_sequence = self.get_image_sequences(input_path)
 
 		if not self.image_sequence:
 			print("No image sequence found! Exiting...")
@@ -121,7 +141,21 @@ class GenerateDaily():
 			return
 
 		self.codec_config = config["output_codecs"][codec]
-		self._validate_config()
+
+		# Get dailies profile config
+		if not input_dailies_profile:
+			input_dailies_profile = DEFAULT_DAILIES_PROFILE
+		
+		self.profile_config = config["profiles"][input_dailies_profile]
+
+		# Add datetime
+		datetime_format_string = self.profile_config.get('text_elements').get('datetime').get('datetime_format')
+		if datetime_format_string:
+			self.text["datetime"] = datetime.datetime.now().strftime(datetime_format_string)
+		else:
+			self.text['datetime'] = datetime.datetime.now().replace(microsecond=0).isoformat()
+		
+		self.validate_config()
 
 		
 		# Set up movie file location and naming
@@ -131,7 +165,6 @@ class GenerateDaily():
 		
 		if seq_basename.endswith(self.image_sequence.parts[-2]):
 			seq_basename = seq_basename[:-1]
-			print("SEQUENCE BASENAME", seq_basename)
 
 		movie_ext = self.globals_config['movie_ext']
 
@@ -181,30 +214,45 @@ class GenerateDaily():
 
 		log.info("ffmpeg command:\n\t{0}".format(ffmpeg_args))
 
-		# Invoke ffmpeg subprocess
-		ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
-			stdin=subprocess.PIPE,
-			stdout=subprocess.PIPE)
+		if not DEBUG:
+			# Invoke ffmpeg subprocess
+			ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+				stdin=subprocess.PIPE,
+				stdout=subprocess.PIPE)
 
 		# Loop through every frame, passing the result to the ffmpeg subprocess
-		for i, frame in enumerate(self.image_sequence, 1):
-			log.info("Processing frame {0:04d}: \t{1:04d} of {2:04d}".format(int(frame.number), i, self.image_sequence.length()))
-			# elapsed_time = timedelta(seconds = time.time() - start_time)
-			# log.info("Time Elapsed: \t{0}".format(elapsed_time))
-			buf = self.process_frame(frame)
-			buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
+		for i, self.frame in enumerate(self.image_sequence, 1):
 
-		result, error = ffproc.communicate()
-		elapsed_time = timedelta(seconds = time.time() - self.start_time)
+			log.info("Processing frame {0:04d}: \t{1:04d} of {2:04d}".format(self.frame.frame, i, self.image_sequence.length()))
+			# elapsed_time = datetime.timedelta(seconds = time.time() - start_time)
+			# log.info("Time Elapsed: \t{0}".format(elapsed_time))
+			buf = self.process_frame(self.frame)
+			buf = self.apply_overlays(buf)
+
+			if not DEBUG:
+				buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
+			else:
+				buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
+		
+		# result, error = ffproc.communicate()
+
+		elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
 		log.info("Total Processing Time: \t{0}".format(elapsed_time))
 
 
-	def _get_imgseqs(self, input_path):
+
+
+
+
+
+
+
+	def get_image_sequences(self, input_path):
 		"""
 		Get list of image sequence objects given a path on disk.
 
 		Args:
-		    input_path: Input file path. Can be a directory or file or %05d / ### style 
+			input_path: Input file path. Can be a directory or file or %05d / ### style 
 		
 		Returns:
 			An image sequence object.
@@ -216,7 +264,12 @@ class GenerateDaily():
 
 		elif os.path.isfile(input_path):
 			# Assume it's the first frame of the image sequence
-			image_sequences = pyseq.get_sequences(input_path)
+			# Try to split off the frame number to get a glob
+			image = pyseq.get_sequences(input_path)
+			if image:
+				image = image[0]
+			image_sequences = pyseq.get_sequences(os.path.join(image.dirname, image.name.split(image.parts[-2])[0]) + "*")
+
 		else:
 			# Assume this is a %05d or ### image sequence. Use the parent directory if it exists.
 			dirname, filename = os.path.split(input_path)
@@ -231,15 +284,18 @@ class GenerateDaily():
 				log.warning("Found more than one image sequence! Using only the first one: \n\t{0}".format(image_sequence.path()))
 			elif len(image_sequences) == 1:
 				image_sequence = image_sequences[0]
-			if image_sequence.missing():
-				log.warning("This image sequence has missing frames: \n\t{0}".format(' '.join(image_sequence.missing())))
+			missing_frames = image_sequence.missing()
+			if missing_frames:
+				log.warning("This image sequence has {0} missing frames: \n\t{1}".format(len(missing_frames), ' '.join(str(x) for x in missing_frames)))
 			log.info("\nFound {0} {1} frames: \n\t{2}".format(image_sequence.frames(), image_sequence.tail(), image_sequence.path()))
 			return image_sequence
 		else:
 			log.error("Could not find any Image Sequences!!!")
 			return None
 
-	def _validate_config(self):
+
+
+	def validate_config(self):
 		"""
 		Validate config information.
 		Directly modifies the self.globals_config and self.codec_config vars
@@ -273,6 +329,7 @@ class GenerateDaily():
 				oheight = int(round(owidth / iar))
 				self.globals_config['height'] = oheight
 			buf.close()
+
 
 	def setup_ffmpeg(self):
 		"""
@@ -344,16 +401,19 @@ class GenerateDaily():
 		return args
 
 
+
+
+
 	def process_frame(self, frame):
 		"""
-		Apply all color and reformat operations to input image, then write the frame to stdout
+		Apply all color and reformat / resize operations to input image, then return the imagebuf 
 
 		Args:
-		    frame: pyseq Item object describing the current frame.
-		    framenumber: the current frame number
+			frame: pyseq Item object describing the current frame.
+			framenumber: the current frame number
 
 		Returns:
-		    Returns an oiio.ImageBuf object which holds the altered image data.
+			Returns an oiio.ImageBuf object which holds the altered image data.
 		"""
 
 		# Setup image buffer
@@ -364,12 +424,6 @@ class GenerateDaily():
 		iwidth = spec.width
 		iheight = spec.height
 		iar = float(iwidth) / float(iheight)
-
-		bitdepth = self.codec_config['bitdepth']
-		if bitdepth > 8:
-			pixel_data_type = oiio.UINT16
-		else:
-			pixel_data_type = oiio.UINT8
 
 		px_filter = self.globals_config['filter']
 		owidth = self.globals_config['width']
@@ -419,6 +473,9 @@ class GenerateDaily():
 				cropheight = int(float(cropheight.split('%')[0])/100*iheight)
 				log.info("Got crop percentage: {0}".format(cropheight))
 
+
+			#############
+			#
 			buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2))
 			# buf.set_full(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2, 0, 0)
 
@@ -444,6 +501,9 @@ class GenerateDaily():
 			if iwidth != owidth:
 				# Perform resize, no change in AR
 				log.debug("{0}, {1}".format(oheight_noar, px_filter))
+				
+				#############
+				#
 				if px_filter:
 					# (bug): using "lanczos3", 6.0, and upscaling causes artifacts
 					# (bug): dst buf must be assigned or ImageBufAlgo.resize doesn't work
@@ -452,7 +512,7 @@ class GenerateDaily():
 					buf = oiio.ImageBufAlgo.resize(buf, roi=oiio.ROI(0, owidth, 0, oheight_noar))
 					
 			if fit:
-				# # If fitting is enabled..
+				# If fitting is enabled..
 				height_diff = oheight - oheight_noar
 				log.debug("Height difference: {0} {1} {2}".format(height_diff, oheight, oheight_noar))
 
@@ -467,45 +527,23 @@ class GenerateDaily():
 					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
 					buf = oiio_transform(buf, 0, height_diff/2)
 				
-		# Apply Cropmask if enabled
-		enable_cropmask = self.globals_config['cropmask']
-		if enable_cropmask:
-			cropmask_ar = self.globals_config['cropmask_ar']
-			cropmask_opacity = self.globals_config['cropmask_opacity']
-			if not cropmask_ar or not cropmask_opacity:
-				loggger.error("Cropmask enabled, but no crop specified. Skipping cropmask...")
-			else:
-				cropmask_height = int(round(owidth / cropmask_ar))
-				cropmask_bar = int((oheight - cropmask_height)/2)
-				log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, oheight, cropmask_ar, cropmask_bar))
-				
-				cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(owidth, oheight, 4, pixel_data_type))
-				
-				# Fill with black, alpha = cropmask opacity
-				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
+		self.output_width = owidth
+		self.output_height = oheight
 
-				# Fill center with black
-				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, owidth, cropmask_bar, oheight - cropmask_bar))
-				
-				# Merge cropmask buf over image
-				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
-				buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
-				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
-		
-		# buf.write(os.path.splitext(os.path.split(frame)[-1])[0]+".jpg")
 		return buf
+
 
 	def oiio_transform(self, buf, xoffset, yoffset):
 		"""
 		Convenience function to reposition an image.
 
 		Args:
-		    buf: oiio.ImageBuf object representing the image to be transformed.
-		    xoffset: X offset in pixels
-		    yoffset: Y offset in pixels
+			buf: oiio.ImageBuf object representing the image to be transformed.
+			xoffset: X offset in pixels
+			yoffset: Y offset in pixels
 
 		Returns:
-		    Returns the modified oiio.ImageBuf object which holds the altered image data.
+			Returns the modified oiio.ImageBuf object which holds the altered image data.
 		"""
 		orig_roi = buf.roi
 		buf.specmod().x += xoffset
@@ -513,6 +551,132 @@ class GenerateDaily():
 		buf_trans = oiio.ImageBuf()
 		oiio.ImageBufAlgo.crop(buf_trans, buf, orig_roi)
 		return buf_trans
+
+
+		
+
+	def apply_overlays(self, buf):
+		"""
+		Apply mask and text overlays to the given frame.
+
+		Args:
+			buf: oiio.ImageBuf object representing the image to be processed.
+			
+		Returns:
+			Returns the modified oiio.ImageBuf object.
+		"""
+
+		# Apply Cropmask if enabled
+		cropmask_config = self.profile_config['cropmask']
+
+		enable_cropmask = cropmask_config['enable']
+		if enable_cropmask:
+			cropmask_ar = cropmask_config['aspect']
+			cropmask_opacity = cropmask_config['opacity']
+
+			if not cropmask_ar or not cropmask_opacity:
+				log.error("Cropmask enabled, but no crop specified. Skipping cropmask...")
+			else:
+				cropmask_height = int(round(self.output_width / cropmask_ar))
+				cropmask_bar = int((self.output_height - cropmask_height)/2)
+				log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, self.output_height, cropmask_ar, cropmask_bar))
+				
+				cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
+				
+				# Fill with black, alpha = cropmask opacity
+				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
+
+				# Fill center with black
+				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, self.output_width, cropmask_bar, self.output_height - cropmask_bar))
+				
+				# Merge cropmask buf over image
+				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+				buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
+				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+
+
+		###########################################
+		# Apply Text Overlays
+		###########################################
+		
+		grid_size = self.profile_config['grid_size']
+
+		# Set up positioning units
+		x_unit = self.output_width / grid_size
+		y_unit = self.output_height / grid_size
+
+
+
+		# Text Elements
+
+		text_elements = self.profile_config['text_elements']
+
+
+		for text_element_name, text_element in text_elements.iteritems():
+			log.debug("Processing text element: {0}".format(text_element_name))
+			
+			# Add framecounter to text elements
+			if text_element_name == "framecounter":
+				self.text[text_element_name] = str(self.frame.frame).zfill(text_element['padding'])
+
+			# Inherit globals if an element in text_element is not defined
+			for key, value in text_element.iteritems():
+				if key in self.profile_config:
+					if not text_element[key]:
+						# text element key is blank, inherit global value
+						text_element[key] = self.profile_config[key]
+			font = text_element['font']
+			if not os.path.isfile(font):
+				log.error("Specified font does not exist!")
+				return buf
+
+			# Calculate font size and position
+			font_size = text_element['font_size']
+			font_color = text_element['font_color']
+			dropshadow = text_element['dropshadow']
+			font_align_x = text_element['font_align_x']
+			font_align_y = text_element['font_align_y']
+			
+			if dropshadow:
+				dropshadow = 1
+			else:
+				dropshadow = 0
+			
+			position = text_element['position']
+			
+			# Calc pixel position
+			# pos_x = int(position[0] * x_unit)
+			# pos_y = int(position[1] * y_unit)
+			pos_x = int(position[0])
+			pos_y = int(position[1])
+
+
+			# Calc font size
+			# font_size = int(font_size / 100 * self.output_width)
+			font_size = int(font_size)
+			
+			# Get text to display
+			frame_text = self.text.get(text_element_name)
+			if frame_text:
+				log.debug("Text Output: \n\t\t\t\t{0}, {1}, {2}, {fontsize}, {textcolor}, {shadow}".format(pos_x, pos_y, frame_text, fontsize=font_size, fontname=font, 
+					textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]), shadow=dropshadow))
+
+				oiio.ImageBufAlgo.render_text(
+					buf, pos_x, pos_y, frame_text, fontsize=font_size, fontname=font, 
+					textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]),
+					alignx="left", aligny="bottom", shadow=dropshadow,
+					roi=oiio.ROI.All, nthreads=0
+					)
+			else:
+				log.warning("Warning: No text specified for text element {0}".format(text_element_name))
+		
+
+		return buf
+
+
+
+
+
 
 
 if __name__=="__main__":

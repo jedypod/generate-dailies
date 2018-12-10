@@ -1,5 +1,4 @@
 globals:
-
   ###############################################
   ## Color
   ###############################################
@@ -13,13 +12,13 @@ globals:
 
   # Not implemented yet
   ociocolorconvert: 
-  ociolook:   
+  ociolook: 
 
   ###############################################
   ## Reformatting and Cropping
   ###############################################
   # If debug is true, no encoding will be done and there will be debug prints 
-  debug: false
+  debug: true
   # Number of pixels to crop from width and height before resizing to dailies res. 
   # You can enter an int pixel number, or a percentage like  5% or 6.25%
   cropwidth:
@@ -64,28 +63,90 @@ globals:
   # For example ../ will place it in the directory above the frames. /place/output will place it here.
   movie_location: ../
   movie_ext: mov
-  # If true, appends "_codec name" to the movie file
+  # If true, appends "_<codec name>" to the movie file
   movie_append_codec: true
 
 
-  ###############################################
-  ## Overlays
-  ###############################################
-  # Enable an overlay to crop the pixels to a specific aspect ratio. 
-  # For example to do a hard crop to 2.35 set the cropmask-ar to 2.35 and the crop mask opacity to 1.0
-  cropmask: false
-  cropmask_ar: 1.85
-  cropmask_opacity: 1.0
-
-  # Choose the font file to use
-  font: /opt/font.ttc
-  framecounter: true
 
 
-# Output profile definitions. 
+###############################################
+## Dailies Overlay Profiles
+###############################################
+
+
+# Dailies overlay profiles to use for different purposes. Each profile allows you to specify an overlay behavior.
+profiles:
+  # Internal Daily: overlays for frame counter, artist, comment, date, etc
+  internal:
+    # Grid_size is for specifying positioning. It splits the image into X by X boxes and you can use them to position the text
+    grid_size: 6
+    font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Roboto_Mono/RobotoMono-Light.ttf
+    # Specify default font size in percentage of frame width. E.g. a value of 1.0 in a 1920x1080 image would be 19.6px 
+    # small = 0.4, medium = 0.8, big = 1.3
+    font_size: 48
+    # left, right, center
+    font_align_x:
+    # baseline, top, bottom, center 
+    font_align_y:
+    # Specify default font color [R,G,B,A] 
+    font_color: [0.8, 0.8, 0.8, 1.0]
+    dropshadow: false
+    
+    # Enable an overlay to crop the pixels to a specific aspect ratio. 
+    # For example to do a hard crop to 2.35 set the cropmask-ar to 2.35 and the crop mask opacity to 1.0
+    cropmask:
+      enable: true
+      aspect: 2.35
+      opacity: 0.5
+    text_elements:
+      # Text overlay to display current frame.
+      framecounter:
+        enable: true
+        position: [1676, 1108]
+        dropshadow: false
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Roboto_Mono/RobotoMono-Light.ttf
+        font_size: 48
+        font_color: [0.8, 0.8, 0.8, 1.0]
+        # Number of digits to pad
+        padding: 5
+      datetime:
+        enable: true
+        position: [1, 4]
+        dropshadow: false
+        font:
+        font_size: 2
+        font_color: [0.8, 0.1, 0.1, 0.1]
+        # Specify the datetime format. For example "%Y-%m-%dT%H:%M:%S" is ISO 8601 standard date format
+        # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior
+        datetime_format: "%Y-%m-%dT%H:%M:%S"
+      comment:
+        enable: true
+        position: [2, 2]
+        dropshadow: false
+        font:
+        font_size: 3
+        font_color: [0.1, 0.8, 0.8, 0.5]
+
+      artist:
+        enable: true
+        position: [2, 2]
+        dropshadow: false
+        font:
+        font_size: 3
+        font_color: [0.1, 0.8, 0.8, 0.5]
+
+
+  # Delivery profile - minimal overlays with cropmask and slate. 
+  delivery:
+    cropmask:
+    framecounter:
+    slate:
+
+# Output profile definitions.
 output_codecs:
   h264_hq:
     name: h264_hq
+    overlay: internal_daily
     width:
     height:
     fit:
@@ -106,6 +167,7 @@ output_codecs:
     bitrate:
   h264_lq:
     name: h264_lq
+    overlay: internal_daily
     width:
     height:
     fit:
@@ -127,6 +189,7 @@ output_codecs:
     movie_ext: mp4
   prores_4444:
     name: prores_4444
+    overlay: delivery
     width:
     height:
     fit:
@@ -147,6 +210,7 @@ output_codecs:
     bitrate:
   prores_422hq:
     name: prores_422hq
+    overlay: delivery
     width:
     height:
     fit:
@@ -166,11 +230,14 @@ output_codecs:
     metadata_s: encoder="Apple ProRes 422 HQ"
     bitrate:
   prores_422:
+    overlay: delivery
   dnxhd_36:
+    overlay: delivery
   dnxhd_175:
     # http://forum.selur.de/topic1348-dnxhr-encoding.html
     # 1920x1080p  175 10  24000/1001
     name: dnxhd_175
+    overlay: delivery
     width: 1920
     height: 1080
     fit: yes
@@ -217,6 +284,7 @@ output_codecs:
   # turn a jpeg sequence into a photo jpeg quicktime
   concat:
     name: concat
+    overlay: internal_daily
     width:
     height:
     fit:
