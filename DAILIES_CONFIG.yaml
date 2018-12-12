@@ -80,7 +80,7 @@ profiles:
   internal:
     # Grid_size is for specifying positioning. It splits the image into X by X boxes and you can use them to position the text
     grid_size: 6
-    font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Roboto_Mono/RobotoMono-Light.ttf
+    font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Droid Sans Mono/DroidSansMono.ttf
     # Specify default font size in percentage of frame width. E.g. a value of 1.0 in a 1920x1080 image would be 19.6px 
     # small = 0.4, medium = 0.8, big = 1.3
     font_size: 48
@@ -104,7 +104,7 @@ profiles:
         enable: true
         position: [1676, 1108]
         dropshadow: false
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Roboto_Mono/RobotoMono-Light.ttf
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Droid Sans Mono/DroidSansMono.ttf
         font_size: 48
         font_color: [0.8, 0.8, 0.8, 1.0]
         # Number of digits to pad
