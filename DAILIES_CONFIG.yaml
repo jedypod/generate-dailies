@@ -78,16 +78,15 @@ globals:
 profiles:
   # Internal Daily: overlays for frame counter, artist, comment, date, etc
   internal:
-    font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+    # path to ttf font file
+    font: 
     # Specify default font size in percentage of frame width. E.g. a value of 1.0 in a 1920x1080 image would be 19.6px 
     # small = 0.4, medium = 0.8, big = 1.3
     font_size: 
-    # left, right, center
-    font_align_x:
-    # baseline, top, bottom, center 
-    font_align_y:
+    # justify x left or center
+    justify: 
     # Specify the percentage of font_size to use as leading: the space between lines
-    leading: 0.33
+    leading: 0.15
     # Specify default font color [R,G,B,A] 
     font_color: [0.8, 0.8, 0.8, 1.0]
     
@@ -96,7 +95,7 @@ profiles:
     cropmask:
       enable: true
       aspect: 2.35
-      opacity: 0.5
+      opacity: 0.8
 
     text_elements:
       datetime:
@@ -107,11 +106,11 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.8427083333333333, 0.9481481481481482, 0.9975179036458334, 0.996875]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        font_align_x: left 
+        justify: left 
         # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior
         # Specify the datetime format. For example "%Y-%m-%dT%H:%M:%S" is ISO 8601 standard date format
         # This would be Mon July 7 2017 23h13: "%a %b %d %Y %Hh%M"
-        datetime_format: "%Y-%m-%d %Hh%M"
+        datetime_format: "%Y-%m-%d - %Hh%M"
 
 
       artist:
@@ -122,7 +121,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.4328125, 0.9481481481481482, 0.5796875, 0.9998842592592593]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        font_align_x: center 
+        justify: center 
 
 
       comment:
@@ -131,9 +130,9 @@ profiles:
         font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
         font_size: 0.0125
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
-        box: [0.018229166666666668, 0.018518518518518517, 0.7, 0.14166666666666666]
+        box: [0.018229166666666668, 0.018518518518518517, 0.49270833333333336, 0.14166666666666666]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        font_align_x: left 
+        justify: left 
 
 
       framecounter:
@@ -144,7 +143,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.9375, 0.016666666666666666, 0.9890299479166667, 0.08333333333333333]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        font_align_x: left 
+        justify: left 
         padding: 5
 
       discipline:
@@ -155,7 +154,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.020833333333333332, 0.9481481481481482, 0.14719645182291666, 0.987037037037037]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        font_align_x: left 
+        justify: left 
 
 
   # Delivery profile - minimal overlays with cropmask and slate. 
@@ -169,8 +168,8 @@ output_codecs:
   h264_hq:
     name: h264_hq
     overlay: internal_daily
-    width:
-    height:
+    width: 3840
+    height: 2160
     fit:
     framerate:
     codec: libx264

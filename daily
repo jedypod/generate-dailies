@@ -187,6 +187,8 @@ class GenerateDaily():
 			if key in self.globals_config:
 				if self.codec_config[key]:
 					self.globals_config[key] = value
+		# !! BUG codec override of resolution into globals not working. Maybe revisit why resolution is even in globals.
+		print("RESOLUTION!", self.output_width, self.output_height)
 
 		# If output width or height is not defined, we need to calculate it from the input images
 		if not self.output_width or not self.output_height:
@@ -261,6 +263,7 @@ class GenerateDaily():
 		log.debug("Got config:\n\tCodec Config:\t{0}\n\tImage Sequence Path:\n\t\t{1}".format(
 			self.codec_config['name'], self.image_sequence.path()))
 
+		log.debug("Output width x height: {0}x{1}".format(self.output_width, self.output_height))
 
 		# Set pixel_data_type based on config bitdepth
 		if self.codec_config['bitdepth'] > 8:
@@ -312,7 +315,7 @@ class GenerateDaily():
 				buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
 			else:
 				buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
-		
+			
 		# result, error = ffproc.communicate()
 
 		elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
@@ -378,7 +381,7 @@ class GenerateDaily():
 		"""
 
 		if self.codec_config['bitdepth'] >= 10:
-			ffmpeg_command = "ffmpeg-10bit"
+			ffmpeg_command = "ffmpeg"
 			pixel_format = "rgb48le"
 		else:
 			ffmpeg_command = "ffmpeg"
@@ -558,13 +561,13 @@ class GenerateDaily():
 				# If we pad to a taller height, we need to crop first, then transform.
 				if self.output_height < oheight_noar:
 					# If we are cropping...
-					buf = oiio_transform(buf, 0, height_diff/2)
+					buf = self.oiio_transform(buf, 0, height_diff/2)
 					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, self.output_width, 0, self.output_height))
 				elif self.output_height > oheight_noar:
 					# If we are padding...
 					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, self.output_width, 0, self.output_height))
-					buf = oiio_transform(buf, 0, height_diff/2)
-		
+					buf = self.oiio_transform(buf, 0, height_diff/2)
+					
 
 
 		# Apply Cropmask if enabled
@@ -596,31 +599,29 @@ class GenerateDaily():
 				buf = oiio.ImageBufAlgo.over(self.static_text_buf, buf)
 				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 
-		
 		return buf
 
 
 	def oiio_transform(self, buf, xoffset, yoffset):
 		"""
 		Convenience function to reposition an image.
-
+		
 		Args:
 			buf: oiio.ImageBuf object representing the image to be transformed.
 			xoffset: X offset in pixels
 			yoffset: Y offset in pixels
-
+		
 		Returns:
 			Returns the modified oiio.ImageBuf object which holds the altered image data.
 		"""
 		orig_roi = buf.roi
-		buf.specmod().x += xoffset
-		buf.specmod().y += yoffset
+		buf.specmod().x += int(xoffset)
+		buf.specmod().y += int(yoffset)
 		buf_trans = oiio.ImageBuf()
 		oiio.ImageBufAlgo.crop(buf_trans, buf, orig_roi)
 		return buf_trans
 
 
-		
 
 	def generate_text(self, text_element_name, text_element, buf):
 		"""
@@ -651,11 +652,14 @@ class GenerateDaily():
 
 
 		# Calculate font size and position
-		font_size = text_element['font_size'] 
+		font_size = text_element['font_size']
 		font_color = text_element['font_color']
-		
 		box = text_element['box']
+		justify = text_element['justify']
+		if justify != "left" or justify != "center":
+			justify = "left"
 		
+
 		# Scale back to pixels from %
 		box_ll = [int(box[0] * self.output_width), int(box[1] * self.output_height)]
 		box_ur = [int(box[2] * self.output_width), int(box[3] * self.output_height)]
@@ -664,9 +668,6 @@ class GenerateDaily():
 		# Convert from Nuke-style (reference = lower left) to OIIO Style (reference = upper left)
 		box_ll[1] = int(self.output_height - box_ll[1])
 		box_ur[1] = int(self.output_height - box_ur[1])
-
-		print(box_ll, box_ur, font_size)
-
 		
 		# Get text to display
 		text_contents = self.text.get(text_element_name)
@@ -674,83 +675,53 @@ class GenerateDaily():
 		if text_prefix:
 			text_contents = text_prefix + text_contents
 
+		leading = self.profile_config.get('leading')
 
-		leading = 0.24
-		# Assume font is 2/3rds wide than font_size
-		font_width_ratio = 0.666
 
-		print(text_element_name)
 		if text_contents:
 			log.debug("Text Output: \n\t\t\t\t{0}, {1}, {2}, {fontsize}, {textcolor}, {shadow}".format(box_ll[0], box_ll[1], text_contents, fontsize=font_size, fontname=font, 
 				textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]), shadow=0))
 
 			text_roi = oiio.ImageBufAlgo.text_size(text_contents, fontsize=font_size, fontname=font)
-			# print(text_element_name, text_roi.width, text_roi.height)
 			
 			# Add text height to position
 			box_ll[1] = int(box_ll[1] + text_roi.height)
-
 			box_width = box_ur[0] - box_ll[0]
-			text_contents_width = len(text_contents) * font_size * font_width_ratio 
-
-			print("Box Width:", box_width, "Text Width (px):", text_contents_width)
-
+			
 			# Wrap text into lines that are not longer than box width
-			if text_contents_width > box_width:
-				# How many characters can fit in the line
-				line_length = box_width / font_size / font_width_ratio
-				
-				print("Characters in a line:", line_length)
-
+			if text_roi.width > box_width:
 				words = text_contents.split()
-				# print(words, len(text_contents))
-
 				# Gather a list of lines that fit in the box
 				lines = []
 				line = []
 				for i, word in enumerate(words):
 					line.append(word)
-					str_line = " ".join(line)
-					print(i, str_line)
-			
 					# Get length of line with next word
+					str_line = " ".join(line)
 					if i < len(words)-1:
-						line_length_next = len(str_line + " " + words[i+1])
+						text_width = oiio.ImageBufAlgo.text_size(str_line + " " + words[i+1], fontsize=font_size, fontname=font).width
 					else:
-						line_length_next = len(str_line)
-
-					print(line_length_next, line_length)
-					if line_length_next > line_length:
-						# new line
-						print(str_line)
+						text_width = oiio.ImageBufAlgo.text_size(str_line, fontsize=font_size, fontname=font).width
+					if text_width > box_width:
 						lines.append(str_line)
 						line = []
-					# catch last 
 					if i == len(words)-1:
 						lines.append(str_line)
-				print(lines)
 			else:
 				lines = [text_contents]
 
-			# !TODO need a way to wrap text after a certain width
-			# Split string after certain length calculated as characters * font size compared to box
-			# split string into list of strings for each line
-			# iterate through each line and render text, offsetting Y by height + line padding
-
 			lines.reverse()
 			for line in lines:
-				print(line)
 				oiio.ImageBufAlgo.render_text(
 					buf, box_ll[0], box_ll[1], line, fontsize=font_size, fontname=font, 
 					textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]),
-					alignx="left", aligny="bottom", shadow=0,
+					alignx=justify, aligny="bottom", shadow=0,
 					roi=oiio.ROI.All, nthreads=0
 					)
 				# Offset up by line height + leading amount
 				box_ll[1] = int(box_ll[1] - font_size - font_size * leading)
 		else:
 			log.warning("Warning: No text specified for text element {0}".format(text_element_name))
-		
 		return buf
 
 
