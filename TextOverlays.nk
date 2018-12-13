@@ -1,0 +1,94 @@
+set cut_paste_input [stack 0]
+push $cut_paste_input
+Group {
+ name DailiesTextOverlay
+ addUserKnob {20 DailiesTextOverlay}
+ addUserKnob {2 font}
+ font /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+ addUserKnob {22 process l "Print Config" t "Print yaml config for text nodes inside. \n\nEach text node is a text element with a size location and color. \n\nClicking this button prints a yaml config that you can copy/paste into the config file. \n\n\n\n\n\n\n" T "node = nuke.thisNode()\nnuke.root().begin()\nnode.begin()\nwidth = node.width()\nheight = node.height()\n\nfor n in nuke.allNodes('Text'):\n    text_element_name = n.name()\n    font = n\['font'].evaluate()\n    font_size = n\['size'].getValue() / width\n    box = n\['box'].getValue()\n    box = \[box\[0] / width, box\[1] / height, box\[2] / width, box\[3] / height]\n    color = n\['color'].getValue()\n    justify = n\['xjustify'].value()\n    text_element = \"\"\"\n\{0\}:\n  enable: true\n  prefix:\n  font: \{1\}\n  font_size: \{2\}\n  # Position a box: 2 x/y coordinates: \[LL, UR]. 0,0 is Lower Left (Nuke-style)\n  box: \{3\}\n  font_color: \{4\}\n  font_align_x: \{5\} \n\"\"\".format( text_element_name, font, font_size, box, color, justify )\n    if text_element_name == \"datetime\":\n        text_element = text_element + \"\"\"  # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior\n  # Specify the datetime format. For example \"%Y-%m-%dT%H:%M:%S\" is ISO 8601 standard date format\n  # This would be Mon July 7 2017 23h13: \"%a %b %d %Y %Hh%M\"\n  datetime_format: \"%Y-%m-%d %Hh%M\"\n\"\"\"\n    nuke.tprint(text_element)" +STARTLINE}
+}
+ Input {
+  inputs 0
+  name Input
+  xpos -230
+  ypos -872
+ }
+ Text {
+  message "Jed Smith"
+  font "\[value parent.font]"
+  size 28
+  xjustify center
+  yjustify bottom
+  Transform 1
+  box {831 1024 1113 1079.875}
+  center {960 540}
+  color {0.8 0.8 0.8 1}
+  name artist
+  xpos -230
+  ypos -708
+ }
+ Text {
+  message "This is a long comment you motherfucker. Just final it. I would also like to point out that this plate is shit and I really don't like it but I do find that the director is also shit. Oh well, I guess I'll just keep working."
+  font "\[value parent.font]"
+  size 24
+  yjustify bottom
+  Transform 1
+  box {35 20 946 153}
+  center {960 540}
+  color {0.8 0.8 0.8 1}
+  name comment
+  xpos -230
+  ypos -668
+ }
+ Text {
+  message 1001
+  font "\[value parent.font]"
+  size 28
+  yjustify bottom
+  Transform 1
+  box {1800 18 1898.9375 90}
+  center {960 540}
+  color {0.8 0.8 0.8 1}
+  name framecounter
+  xpos -230
+  ypos -609
+ }
+ Text {
+  message "2018-09-07 23h12"
+  font "\[value parent.font]"
+  size 28
+  yjustify bottom
+  Transform 1
+  box {1618 1024 1915.234375 1076.625}
+  center {960 540}
+  color {0.8 0.8 0.8 1}
+  name datetime
+  xpos -230
+  ypos -556
+ }
+ Text {
+  message comp
+  font "\[value parent.font]"
+  size 28
+  yjustify bottom
+  Transform 1
+  box {40 1024 282.6171875 1066}
+  center {960 540}
+  color {0.8 0.8 0.8 1}
+  name discipline
+  xpos -230
+  ypos -505
+ }
+ Output {
+  name Output1
+  xpos -230
+  ypos -313
+ }
+ Viewer {
+  frame_range 1-100
+  viewerProcess "RRT (ACES)"
+  name Viewer1
+  xpos -136
+  ypos -54
+ }
+end_group

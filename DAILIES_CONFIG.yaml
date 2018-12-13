@@ -26,7 +26,7 @@ globals:
   # width and height are the resolution to reformat to. 
   width: 1920
   height: 1080
-  # If fit=no, height will be ignored and the aspect ratio of the input will be preserved.
+  # If fit=false there will be no padding: height will be ignored and the aspect ratio of the input will be preserved.
   fit: true
 
   # Enable an oiio pixel filter to use for scaling. Default is good: blackman-harris for scaling up, lanczos3 for scaling down.
@@ -57,7 +57,7 @@ globals:
   # https://ffmpeg.org/ffmpeg-scaler.html
   # Example: "lut3d=${lut},scale=w=${width}:h=${height}:force_original_aspect_ratio=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2"
   vf: 
-  # Choose which output profile to use by default. See options below.
+  # Choose which output profile to use by default if none specified. See options below.
   output_codec: h264_hq
   # Movie location is a relative or absolute path for where to place the daily movie
   # For example ../ will place it in the directory above the frames. /place/output will place it here.
@@ -78,19 +78,18 @@ globals:
 profiles:
   # Internal Daily: overlays for frame counter, artist, comment, date, etc
   internal:
-    # Grid_size is for specifying positioning. It splits the image into X by X boxes and you can use them to position the text
-    grid_size: 6
-    font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Droid Sans Mono/DroidSansMono.ttf
+    font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
     # Specify default font size in percentage of frame width. E.g. a value of 1.0 in a 1920x1080 image would be 19.6px 
     # small = 0.4, medium = 0.8, big = 1.3
-    font_size: 48
+    font_size: 
     # left, right, center
     font_align_x:
     # baseline, top, bottom, center 
     font_align_y:
+    # Specify the percentage of font_size to use as leading: the space between lines
+    leading: 0.33
     # Specify default font color [R,G,B,A] 
     font_color: [0.8, 0.8, 0.8, 1.0]
-    dropshadow: false
     
     # Enable an overlay to crop the pixels to a specific aspect ratio. 
     # For example to do a hard crop to 2.35 set the cropmask-ar to 2.35 and the crop mask opacity to 1.0
@@ -98,42 +97,65 @@ profiles:
       enable: true
       aspect: 2.35
       opacity: 0.5
+
     text_elements:
-      # Text overlay to display current frame.
-      framecounter:
-        enable: true
-        position: [1676, 1108]
-        dropshadow: false
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Droid Sans Mono/DroidSansMono.ttf
-        font_size: 48
-        font_color: [0.8, 0.8, 0.8, 1.0]
-        # Number of digits to pad
-        padding: 5
       datetime:
         enable: true
-        position: [1, 4]
-        dropshadow: false
-        font:
-        font_size: 2
-        font_color: [0.8, 0.1, 0.1, 0.1]
-        # Specify the datetime format. For example "%Y-%m-%dT%H:%M:%S" is ISO 8601 standard date format
+        prefix:
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font_size: 0.0145833333333
+        # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
+        box: [0.8427083333333333, 0.9481481481481482, 0.9975179036458334, 0.996875]
+        font_color: [0.8, 0.8, 0.8, 1.0]
+        font_align_x: left 
         # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior
-        datetime_format: "%Y-%m-%dT%H:%M:%S"
-      comment:
-        enable: true
-        position: [2, 2]
-        dropshadow: false
-        font:
-        font_size: 3
-        font_color: [0.1, 0.8, 0.8, 0.5]
+        # Specify the datetime format. For example "%Y-%m-%dT%H:%M:%S" is ISO 8601 standard date format
+        # This would be Mon July 7 2017 23h13: "%a %b %d %Y %Hh%M"
+        datetime_format: "%Y-%m-%d %Hh%M"
+
 
       artist:
         enable: true
-        position: [2, 2]
-        dropshadow: false
-        font:
-        font_size: 3
-        font_color: [0.1, 0.8, 0.8, 0.5]
+        prefix:
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font_size: 0.0145833333333
+        # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
+        box: [0.4328125, 0.9481481481481482, 0.5796875, 0.9998842592592593]
+        font_color: [0.8, 0.8, 0.8, 1.0]
+        font_align_x: center 
+
+
+      comment:
+        enable: true
+        prefix:
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font_size: 0.0125
+        # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
+        box: [0.018229166666666668, 0.018518518518518517, 0.7, 0.14166666666666666]
+        font_color: [0.8, 0.8, 0.8, 1.0]
+        font_align_x: left 
+
+
+      framecounter:
+        enable: true
+        prefix:
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font_size: 0.0145833333333
+        # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
+        box: [0.9375, 0.016666666666666666, 0.9890299479166667, 0.08333333333333333]
+        font_color: [0.8, 0.8, 0.8, 1.0]
+        font_align_x: left 
+        padding: 5
+
+      discipline:
+        enable: true
+        prefix:
+        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font_size: 0.0145833333333
+        # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
+        box: [0.020833333333333332, 0.9481481481481482, 0.14719645182291666, 0.987037037037037]
+        font_color: [0.8, 0.8, 0.8, 1.0]
+        font_align_x: left 
 
 
   # Delivery profile - minimal overlays with cropmask and slate. 
@@ -165,6 +187,7 @@ output_codecs:
     vendor:
     metadata_s:
     bitrate:
+
   h264_lq:
     name: h264_lq
     overlay: internal_daily
@@ -187,6 +210,7 @@ output_codecs:
     metadata_s:
     bitrate:
     movie_ext: mp4
+
   prores_4444:
     name: prores_4444
     overlay: delivery
@@ -208,6 +232,7 @@ output_codecs:
     vendor: ap10
     metadata_s: encoder="Apple ProRes 4444"
     bitrate:
+
   prores_422hq:
     name: prores_422hq
     overlay: delivery
@@ -229,10 +254,13 @@ output_codecs:
     vendor: ap10
     metadata_s: encoder="Apple ProRes 422 HQ"
     bitrate:
+
   prores_422:
     overlay: delivery
+
   dnxhd_36:
     overlay: delivery
+  
   dnxhd_175:
     # http://forum.selur.de/topic1348-dnxhr-encoding.html
     # 1920x1080p  175 10  24000/1001
@@ -256,6 +284,7 @@ output_codecs:
     vendor:
     metadata_s:
     bitrate: 175M
+  
   dnxhr_hqx:
     # https://askubuntu.com/questions/907398/how-to-convert-a-video-with-ffmpeg-into-the-dnxhd-dnxhr-format
     # dnxhd, dnxhr_444, dnxhr_hqx, dnxhr_hq, dnxhr_sq, dnxhr_lb
@@ -279,9 +308,11 @@ output_codecs:
     vendor:
     metadata_s:
     bitrate: 175M
+  
   mjpeg:
   # Special codec to concatenate input images into a quicktime container, for example if you want to 
   # turn a jpeg sequence into a photo jpeg quicktime
+  
   concat:
     name: concat
     overlay: internal_daily

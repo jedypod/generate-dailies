@@ -51,8 +51,9 @@ Raises:
 	KeyError: Raises an exception.
 """
 
+dir_path = os.path.dirname(os.path.realpath(__file__))
 
-DAILIES_CONFIG_DEFAULT = "/mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/DAILIES_CONFIG.yaml"
+DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "DAILIES_CONFIG.yaml")
 DEFAULT_CODEC = 'h264_hq'
 DEFAULT_DAILIES_PROFILE = 'internal'
 
@@ -66,10 +67,15 @@ class GenerateDaily():
 	def __init__(self):
 		"""
 		Initial setup: gather and validate config and input data.
-
+		Args:
+			None
+		Returns:
+			Nothing is returned. If self.setup_success = is True, it is ready to process()
 		"""
 
 		self.start_time = time.time()
+		self.setup_success = False
+
 		
 		# Parse Config File
 		DAILIES_CONFIG = os.getenv("DAILIES_CONFIG")
@@ -82,6 +88,7 @@ class GenerateDaily():
 				config = yaml.load(configfile)
 		else:
 			print("Error: Could not find config file {0}".format(DAILIES_CONFIG))
+			self.setup_success = False
 			return
 
 		# Get list of possible output profiles from config.
@@ -93,7 +100,7 @@ class GenerateDaily():
 
 		# Parse input arguments
 		parser = argparse.ArgumentParser(description='Process given exr image sequence with ocio display, resize and output to stdout.')
-		parser.add_argument("-i", "--input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
+		parser.add_argument("-i", "--input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.", required=True)
 		parser.add_argument("-c", "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
 		parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles)))
 		parser.add_argument("-t", '--text', help="Text elements and contents to add: e.g. \n\t\"artist: Jed Smith | comment: this is stupid man|")
@@ -102,7 +109,11 @@ class GenerateDaily():
 		input_path = args.input_path
 		codec = args.codec
 		input_dailies_profile = args.profile
-		texts = args.text.split('|')
+		texts = args.text
+		if texts:
+			texts = texts.split('|')
+		else:
+			texts = []
 
 		# Assemble text elements contents dict
 		self.text = {}
@@ -113,7 +124,6 @@ class GenerateDaily():
 			self.text[key] = value
 		
 
-
 		# Use current directory if no input path specified
 		if not input_path:
 			input_path = os.getcwd()
@@ -123,6 +133,7 @@ class GenerateDaily():
 
 		if not self.image_sequence:
 			print("No image sequence found! Exiting...")
+			self.setup_success = False
 			return
 
 		# Get Config dicts for globals and the "codec" config from the config file
@@ -138,15 +149,18 @@ class GenerateDaily():
 				codec = DEFAULT_CODEC
 		if codec not in output_codecs:
 			print("Error: invalid codec specified. Possible options are \n\t{0}".format("\n\t".join(output_codecs)))
+			self.setup_success = False
 			return
 
 		self.codec_config = config["output_codecs"][codec]
+
 
 		# Get dailies profile config
 		if not input_dailies_profile:
 			input_dailies_profile = DEFAULT_DAILIES_PROFILE
 		
 		self.profile_config = config["profiles"][input_dailies_profile]
+
 
 		# Add datetime
 		datetime_format_string = self.profile_config.get('text_elements').get('datetime').get('datetime_format')
@@ -155,7 +169,51 @@ class GenerateDaily():
 		else:
 			self.text['datetime'] = datetime.datetime.now().replace(microsecond=0).isoformat()
 		
-		self.validate_config()
+
+		# Get output width and height
+		self.output_width = self.globals_config['width']
+		self.output_height = self.globals_config['height']
+
+
+		# Validate config information. 	Directly modifies the self.globals_config and self.codec_config vars		
+
+		# Try to get ocio config from $OCIO env-var if it's not defined
+		if not self.globals_config['ocioconfig']:
+			if os.getenv("OCIO"):
+				self.globals_config['ocioconfig'] = os.getenv("OCIO")
+
+		# Anything with the same name in the codec config overrides the globals
+		for key, value in self.codec_config.iteritems():
+			if key in self.globals_config:
+				if self.codec_config[key]:
+					self.globals_config[key] = value
+
+		# If output width or height is not defined, we need to calculate it from the input images
+		if not self.output_width or not self.output_height:
+			buf = oiio.ImageBuf(image_sequence[0].path)
+			spec = buf.spec()
+			iar = float(spec.width) / float(spec.height)
+			if not self.output_width:
+				self.output_width = spec.width
+				self.globals_config['width'] = self.output_width
+			if not self.output_height:
+				self.output_height = int(round(self.output_width / iar))
+				self.globals_config['height'] = self.output_height
+			buf.close()
+
+		self.setup_success = True
+
+
+
+
+	def process(self):
+		"""
+		Performs the actual processing of the movie.
+		Args:
+			None
+		Returns:
+			None
+		"""
 
 		
 		# Set up movie file location and naming
@@ -168,6 +226,7 @@ class GenerateDaily():
 
 		movie_ext = self.globals_config['movie_ext']
 
+
 		# Create full movie filename
 		# Append codec to dailies movie name if requested
 		if self.globals_config['movie_append_codec']:
@@ -177,12 +236,14 @@ class GenerateDaily():
 			movie_basename = seq_basename
 			movie_filename = seq_basename + "." + movie_ext
 		
+
 		# Handle relative / absolute paths for movie location
 		movie_location = self.globals_config['movie_location']
 		if movie_location.startswith('/'):
 			self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_filename)
 		else:
 			self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
+
 
 		# Set up Logger
 		log_fullpath = os.path.splitext(self.movie_fullpath)[0] + ".log"
@@ -214,11 +275,22 @@ class GenerateDaily():
 
 		log.info("ffmpeg command:\n\t{0}".format(ffmpeg_args))
 
+
+		# Static image buffer for text that doesn't change frame to frame
+		self.static_text_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
+		
+		# Loop through each text element, create the text image, and add it to self.static_text_buf
+		text_elements = self.profile_config['text_elements']
+		for text_element_name, text_element in text_elements.iteritems():
+			self.generate_text(text_element_name, text_element, self.static_text_buf)
+
+
 		if not DEBUG:
 			# Invoke ffmpeg subprocess
 			ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
 				stdin=subprocess.PIPE,
 				stdout=subprocess.PIPE)
+
 
 		# Loop through every frame, passing the result to the ffmpeg subprocess
 		for i, self.frame in enumerate(self.image_sequence, 1):
@@ -226,8 +298,15 @@ class GenerateDaily():
 			log.info("Processing frame {0:04d}: \t{1:04d} of {2:04d}".format(self.frame.frame, i, self.image_sequence.length()))
 			# elapsed_time = datetime.timedelta(seconds = time.time() - start_time)
 			# log.info("Time Elapsed: \t{0}".format(elapsed_time))
+
+
 			buf = self.process_frame(self.frame)
-			buf = self.apply_overlays(buf)
+
+			# Set framecounter in text elements, add framecounter text
+			self.text['framecounter'] = str(self.frame.frame).zfill(text_elements['framecounter']['padding'])
+
+			buf = self.generate_text('framecounter', text_elements['framecounter'], buf)
+
 
 			if not DEBUG:
 				buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
@@ -238,11 +317,6 @@ class GenerateDaily():
 
 		elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
 		log.info("Total Processing Time: \t{0}".format(elapsed_time))
-
-
-
-
-
 
 
 
@@ -293,42 +367,6 @@ class GenerateDaily():
 			log.error("Could not find any Image Sequences!!!")
 			return None
 
-
-
-	def validate_config(self):
-		"""
-		Validate config information.
-		Directly modifies the self.globals_config and self.codec_config vars
-		
-		Returns:
-			None
-		"""
-
-		# Try to get ocio config from $OCIO env-var if it's not defined
-		if not self.globals_config['ocioconfig']:
-			if os.getenv("OCIO"):
-				self.globals_config['ocioconfig'] = os.getenv("OCIO")
-
-		# Anything with the same name in the codec config overrides the globals
-		for key, value in self.codec_config.iteritems():
-			if key in self.globals_config:
-				if self.codec_config[key]:
-					self.globals_config[key] = value
-
-		# If output width or height is not defined, we need to calculate it from the input images
-		owidth = self.globals_config['width']
-		oheight = self.globals_config['height']
-		if not owidth or not oheight:
-			buf = oiio.ImageBuf(image_sequence[0].path)
-			spec = buf.spec()
-			iar = float(spec.width) / float(spec.height)
-			if not owidth:
-				owidth = spec.width
-				self.globals_config['width'] = owidth
-			if not oheight:
-				oheight = int(round(owidth / iar))
-				self.globals_config['height'] = oheight
-			buf.close()
 
 
 	def setup_ffmpeg(self):
@@ -426,8 +464,8 @@ class GenerateDaily():
 		iar = float(iwidth) / float(iheight)
 
 		px_filter = self.globals_config['filter']
-		owidth = self.globals_config['width']
-		oheight = self.globals_config['height']
+		self.output_width = self.globals_config['width']
+		self.output_height = self.globals_config['height']
 		fit = self.globals_config['fit']
 		cropwidth = self.globals_config['cropwidth']
 		cropheight = self.globals_config['cropheight']
@@ -452,15 +490,15 @@ class GenerateDaily():
 
 
 		# Setup for width and height
-		if not owidth:
+		if not self.output_width:
 			resize = False
 		else:
 			resize = True
 			# If no output height specified, resize keeping aspect ratio, long side = width - calc height
-			oheight_noar = int(owidth / iar)
-			if not oheight:
-				oheight = oheight_noar
-			oar = float(owidth) / float(oheight)
+			oheight_noar = int(self.output_width / iar)
+			if not self.output_height:
+				self.output_height = oheight_noar
+			oar = float(self.output_width) / float(self.output_height)
 
 
 		# Apply cropwidth / cropheight to remove pixels on edges before applying resize
@@ -493,12 +531,12 @@ class GenerateDaily():
 		# If output height is different than input height: transform by the output height - input height / 2 to center, 
 		# then crop to change the roi to the output res (crop moves upper left corner)
 
-		identical = owidth == iwidth and oheight == iheight
+		identical = self.output_width == iwidth and self.output_height == iheight
 		resize = not identical and resize
 		if resize:
-			log.info("Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, owidth, oheight, oar))
+			log.info("Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, self.output_width, self.output_height, oar))
 
-			if iwidth != owidth:
+			if iwidth != self.output_width:
 				# Perform resize, no change in AR
 				log.debug("{0}, {1}".format(oheight_noar, px_filter))
 				
@@ -507,29 +545,58 @@ class GenerateDaily():
 				if px_filter:
 					# (bug): using "lanczos3", 6.0, and upscaling causes artifacts
 					# (bug): dst buf must be assigned or ImageBufAlgo.resize doesn't work
-					buf = oiio.ImageBufAlgo.resize(buf, px_filter, roi=oiio.ROI(0, owidth, 0, oheight_noar))
+					buf = oiio.ImageBufAlgo.resize(buf, px_filter, roi=oiio.ROI(0, self.output_width, 0, oheight_noar))
 				else:
-					buf = oiio.ImageBufAlgo.resize(buf, roi=oiio.ROI(0, owidth, 0, oheight_noar))
+					buf = oiio.ImageBufAlgo.resize(buf, roi=oiio.ROI(0, self.output_width, 0, oheight_noar))
 					
 			if fit:
 				# If fitting is enabled..
-				height_diff = oheight - oheight_noar
-				log.debug("Height difference: {0} {1} {2}".format(height_diff, oheight, oheight_noar))
+				height_diff = self.output_height - oheight_noar
+				log.debug("Height difference: {0} {1} {2}".format(height_diff, self.output_height, oheight_noar))
 
 				# If we are cropping to a smaller height we need to transform first then crop
 				# If we pad to a taller height, we need to crop first, then transform.
-				if oheight < oheight_noar:
+				if self.output_height < oheight_noar:
 					# If we are cropping...
 					buf = oiio_transform(buf, 0, height_diff/2)
-					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
-				elif oheight > oheight_noar:
+					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, self.output_width, 0, self.output_height))
+				elif self.output_height > oheight_noar:
 					# If we are padding...
-					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, owidth, 0, oheight))
+					buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, self.output_width, 0, self.output_height))
 					buf = oiio_transform(buf, 0, height_diff/2)
-				
-		self.output_width = owidth
-		self.output_height = oheight
+		
 
+
+		# Apply Cropmask if enabled
+		cropmask_config = self.profile_config['cropmask']
+
+		enable_cropmask = cropmask_config['enable']
+		if enable_cropmask:
+			cropmask_ar = cropmask_config['aspect']
+			cropmask_opacity = cropmask_config['opacity']
+
+			if not cropmask_ar or not cropmask_opacity:
+				log.error("Cropmask enabled, but no crop specified. Skipping cropmask...")
+			else:
+				cropmask_height = int(round(self.output_width / cropmask_ar))
+				cropmask_bar = int((self.output_height - cropmask_height)/2)
+				log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, self.output_height, cropmask_ar, cropmask_bar))
+				
+				cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
+				
+				# Fill with black, alpha = cropmask opacity
+				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
+
+				# Fill center with black
+				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, self.output_width, cropmask_bar, self.output_height - cropmask_bar))
+				
+				# Merge cropmask and text over image
+				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+				buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
+				buf = oiio.ImageBufAlgo.over(self.static_text_buf, buf)
+				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
+
+		
 		return buf
 
 
@@ -555,122 +622,135 @@ class GenerateDaily():
 
 		
 
-	def apply_overlays(self, buf):
+	def generate_text(self, text_element_name, text_element, buf):
 		"""
-		Apply mask and text overlays to the given frame.
+		Generate text and write it into an image buffer.
 
 		Args:
-			buf: oiio.ImageBuf object representing the image to be processed.
+			text_element_name: the name of the text element to search for in the config
+			text_element: the config dict to use
+			buf: the oiio.ImageBuf object to write the pixels into
 			
 		Returns:
-			Returns the modified oiio.ImageBuf object.
+			Returns the modified oiio.ImageBuf object with text added.
 		"""
 
-		# Apply Cropmask if enabled
-		cropmask_config = self.profile_config['cropmask']
-
-		enable_cropmask = cropmask_config['enable']
-		if enable_cropmask:
-			cropmask_ar = cropmask_config['aspect']
-			cropmask_opacity = cropmask_config['opacity']
-
-			if not cropmask_ar or not cropmask_opacity:
-				log.error("Cropmask enabled, but no crop specified. Skipping cropmask...")
-			else:
-				cropmask_height = int(round(self.output_width / cropmask_ar))
-				cropmask_bar = int((self.output_height - cropmask_height)/2)
-				log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, self.output_height, cropmask_ar, cropmask_bar))
-				
-				cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
-				
-				# Fill with black, alpha = cropmask opacity
-				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
-
-				# Fill center with black
-				oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, self.output_width, cropmask_bar, self.output_height - cropmask_bar))
-				
-				# Merge cropmask buf over image
-				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
-				buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
-				oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
-
-
-		###########################################
-		# Apply Text Overlays
-		###########################################
-		
-		grid_size = self.profile_config['grid_size']
-
-		# Set up positioning units
-		x_unit = self.output_width / grid_size
-		y_unit = self.output_height / grid_size
-
-
-
 		# Text Elements
+		log.debug("Processing text element: {0}".format(text_element_name))
 
-		text_elements = self.profile_config['text_elements']
+		# Inherit globals if an element in text_element is not defined
+		for key, value in text_element.iteritems():
+			if key in self.profile_config:
+				if not text_element[key]:
+					# text element key is blank, inherit global value
+					text_element[key] = self.profile_config[key]
+		font = text_element['font']
+		if not os.path.isfile(font):
+			log.error("Specified font does not exist!")
+			return buf
 
 
-		for text_element_name, text_element in text_elements.iteritems():
-			log.debug("Processing text element: {0}".format(text_element_name))
+		# Calculate font size and position
+		font_size = text_element['font_size'] 
+		font_color = text_element['font_color']
+		
+		box = text_element['box']
+		
+		# Scale back to pixels from %
+		box_ll = [int(box[0] * self.output_width), int(box[1] * self.output_height)]
+		box_ur = [int(box[2] * self.output_width), int(box[3] * self.output_height)]
+		font_size = int(font_size * self.output_width)
+
+		# Convert from Nuke-style (reference = lower left) to OIIO Style (reference = upper left)
+		box_ll[1] = int(self.output_height - box_ll[1])
+		box_ur[1] = int(self.output_height - box_ur[1])
+
+		print(box_ll, box_ur, font_size)
+
+		
+		# Get text to display
+		text_contents = self.text.get(text_element_name)
+		text_prefix = text_element['prefix']
+		if text_prefix:
+			text_contents = text_prefix + text_contents
+
+
+		leading = 0.24
+		# Assume font is 2/3rds wide than font_size
+		font_width_ratio = 0.666
+
+		print(text_element_name)
+		if text_contents:
+			log.debug("Text Output: \n\t\t\t\t{0}, {1}, {2}, {fontsize}, {textcolor}, {shadow}".format(box_ll[0], box_ll[1], text_contents, fontsize=font_size, fontname=font, 
+				textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]), shadow=0))
+
+			text_roi = oiio.ImageBufAlgo.text_size(text_contents, fontsize=font_size, fontname=font)
+			# print(text_element_name, text_roi.width, text_roi.height)
 			
-			# Add framecounter to text elements
-			if text_element_name == "framecounter":
-				self.text[text_element_name] = str(self.frame.frame).zfill(text_element['padding'])
+			# Add text height to position
+			box_ll[1] = int(box_ll[1] + text_roi.height)
 
-			# Inherit globals if an element in text_element is not defined
-			for key, value in text_element.iteritems():
-				if key in self.profile_config:
-					if not text_element[key]:
-						# text element key is blank, inherit global value
-						text_element[key] = self.profile_config[key]
-			font = text_element['font']
-			if not os.path.isfile(font):
-				log.error("Specified font does not exist!")
-				return buf
+			box_width = box_ur[0] - box_ll[0]
+			text_contents_width = len(text_contents) * font_size * font_width_ratio 
 
-			# Calculate font size and position
-			font_size = text_element['font_size']
-			font_color = text_element['font_color']
-			dropshadow = text_element['dropshadow']
-			font_align_x = text_element['font_align_x']
-			font_align_y = text_element['font_align_y']
+			print("Box Width:", box_width, "Text Width (px):", text_contents_width)
+
+			# Wrap text into lines that are not longer than box width
+			if text_contents_width > box_width:
+				# How many characters can fit in the line
+				line_length = box_width / font_size / font_width_ratio
+				
+				print("Characters in a line:", line_length)
+
+				words = text_contents.split()
+				# print(words, len(text_contents))
+
+				# Gather a list of lines that fit in the box
+				lines = []
+				line = []
+				for i, word in enumerate(words):
+					line.append(word)
+					str_line = " ".join(line)
+					print(i, str_line)
 			
-			if dropshadow:
-				dropshadow = 1
+					# Get length of line with next word
+					if i < len(words)-1:
+						line_length_next = len(str_line + " " + words[i+1])
+					else:
+						line_length_next = len(str_line)
+
+					print(line_length_next, line_length)
+					if line_length_next > line_length:
+						# new line
+						print(str_line)
+						lines.append(str_line)
+						line = []
+					# catch last 
+					if i == len(words)-1:
+						lines.append(str_line)
+				print(lines)
 			else:
-				dropshadow = 0
-			
-			position = text_element['position']
-			
-			# Calc pixel position
-			# pos_x = int(position[0] * x_unit)
-			# pos_y = int(position[1] * y_unit)
-			pos_x = int(position[0])
-			pos_y = int(position[1])
+				lines = [text_contents]
 
+			# !TODO need a way to wrap text after a certain width
+			# Split string after certain length calculated as characters * font size compared to box
+			# split string into list of strings for each line
+			# iterate through each line and render text, offsetting Y by height + line padding
 
-			# Calc font size
-			# font_size = int(font_size / 100 * self.output_width)
-			font_size = int(font_size)
-			
-			# Get text to display
-			frame_text = self.text.get(text_element_name)
-			if frame_text:
-				log.debug("Text Output: \n\t\t\t\t{0}, {1}, {2}, {fontsize}, {textcolor}, {shadow}".format(pos_x, pos_y, frame_text, fontsize=font_size, fontname=font, 
-					textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]), shadow=dropshadow))
-
+			lines.reverse()
+			for line in lines:
+				print(line)
 				oiio.ImageBufAlgo.render_text(
-					buf, pos_x, pos_y, frame_text, fontsize=font_size, fontname=font, 
+					buf, box_ll[0], box_ll[1], line, fontsize=font_size, fontname=font, 
 					textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]),
-					alignx="left", aligny="bottom", shadow=dropshadow,
+					alignx="left", aligny="bottom", shadow=0,
 					roi=oiio.ROI.All, nthreads=0
 					)
-			else:
-				log.warning("Warning: No text specified for text element {0}".format(text_element_name))
+				# Offset up by line height + leading amount
+				box_ll[1] = int(box_ll[1] - font_size - font_size * leading)
+		else:
+			log.warning("Warning: No text specified for text element {0}".format(text_element_name))
 		
-
 		return buf
 
 
@@ -681,3 +761,5 @@ class GenerateDaily():
 
 if __name__=="__main__":
 	daily = GenerateDaily()
+	if daily.setup_success:
+		daily.process()
