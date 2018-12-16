@@ -170,10 +170,6 @@ class GenerateDaily():
 			self.text['datetime'] = datetime.datetime.now().replace(microsecond=0).isoformat()
 		
 
-		# Get output width and height
-		self.output_width = self.globals_config['width']
-		self.output_height = self.globals_config['height']
-
 
 		# Validate config information. 	Directly modifies the self.globals_config and self.codec_config vars		
 
@@ -187,6 +183,11 @@ class GenerateDaily():
 			if key in self.globals_config:
 				if self.codec_config[key]:
 					self.globals_config[key] = value
+
+		# Get output width and height
+		self.output_width = self.globals_config['width']
+		self.output_height = self.globals_config['height']
+
 		# !! BUG codec override of resolution into globals not working. Maybe revisit why resolution is even in globals.
 		print("RESOLUTION!", self.output_width, self.output_height)
 
@@ -507,18 +508,21 @@ class GenerateDaily():
 		# Apply cropwidth / cropheight to remove pixels on edges before applying resize
 		if cropwidth or cropheight:
 			# Handle percentages
-			if "%" in cropwidth:
-				cropwidth = int(float(cropwidth.split('%')[0])/100*iwidth)
-				log.info("Got crop percentage: {0}".format(cropwidth))
-			if "%" in cropheight:
-				cropheight = int(float(cropheight.split('%')[0])/100*iheight)
-				log.info("Got crop percentage: {0}".format(cropheight))
+			if type(cropwidth) == str:
+				if "%" in cropwidth:
+					cropwidth = int(float(cropwidth.split('%')[0])/100*iwidth)
+					log.info("Got crop width percentage: {0}px".format(cropwidth))
+			if type(cropheight) == str:
+				if "%" in cropheight:
+					cropheight = int(float(cropheight.split('%')[0])/100*iheight)
+					log.info("Got crop height percentage: {0}px".format(cropheight))
 
 
 			#############
 			#
-			buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2))
-			# buf.set_full(cropwidth / 2, iwidth - cropwidth / 2, cropheight / 2, iheight - cropheight / 2, 0, 0)
+			buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(int(cropwidth / 2), int(iwidth - cropwidth / 2), int(cropheight / 2), int(iheight - cropheight / 2)))
+			
+			buf.set_full(int(cropwidth / 2), int(iwidth - cropwidth / 2), int(cropheight / 2), int(iheight - cropheight / 2), 0, 0)
 
 			log.debug("CROPPED:{0} {1}".format(buf.spec().width, buf.spec().height))
 

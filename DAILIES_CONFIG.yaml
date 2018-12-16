@@ -4,7 +4,7 @@ globals:
   ###############################################
 
   # Path to the ocio config to use
-  ocioconfig: /opt/ocio/aces/config.ocio
+  ocioconfig: /Users/jed/dev/ocio/aces/config.ocio
   # ocio display transform
   ociodisplay: ACES
   # ocio view transform 
@@ -20,7 +20,7 @@ globals:
   # If debug is true, no encoding will be done and there will be debug prints 
   debug: true
   # Number of pixels to crop from width and height before resizing to dailies res. 
-  # You can enter an int pixel number, or a percentage like  5% or 6.25%
+  # Enter an int pixel number, or a percentage like  5% or 6.25%
   cropwidth:
   cropheight: 
   # width and height are the resolution to reformat to. 
@@ -101,7 +101,7 @@ profiles:
       datetime:
         enable: true
         prefix:
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font: /Users/jed/dev/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
         font_size: 0.0145833333333
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.8427083333333333, 0.9481481481481482, 0.9975179036458334, 0.996875]
@@ -116,7 +116,7 @@ profiles:
       artist:
         enable: true
         prefix:
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font: /Users/jed/dev/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
         font_size: 0.0145833333333
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.4328125, 0.9481481481481482, 0.5796875, 0.9998842592592593]
@@ -127,7 +127,7 @@ profiles:
       comment:
         enable: true
         prefix:
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font: /Users/jed/dev/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
         font_size: 0.0125
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.018229166666666668, 0.018518518518518517, 0.49270833333333336, 0.14166666666666666]
@@ -138,7 +138,7 @@ profiles:
       framecounter:
         enable: true
         prefix:
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font: /Users/jed/dev/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
         font_size: 0.0145833333333
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.9375, 0.016666666666666666, 0.9890299479166667, 0.08333333333333333]
@@ -149,7 +149,7 @@ profiles:
       discipline:
         enable: true
         prefix:
-        font: /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+        font: /Users/jed/dev/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
         font_size: 0.0145833333333
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.020833333333333332, 0.9481481481481482, 0.14719645182291666, 0.987037037037037]
@@ -168,6 +168,8 @@ output_codecs:
   h264_hq:
     name: h264_hq
     overlay: internal_daily
+    cropwidth: 150
+    cropheight: 400
     width: 3840
     height: 2160
     fit:
