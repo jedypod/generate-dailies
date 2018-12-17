@@ -188,10 +188,13 @@ output_codecs:
     vendor:
     metadata_s:
     bitrate:
+    movie_ext: mov
 
   h264_lq:
     name: h264_lq
     overlay: internal_daily
+    cropwidth:
+    cropheight: 
     width:
     height:
     fit:
@@ -233,6 +236,7 @@ output_codecs:
     vendor: ap10
     metadata_s: encoder="Apple ProRes 4444"
     bitrate:
+    movie_ext: mov
 
   prores_422hq:
     name: prores_422hq
@@ -255,6 +259,7 @@ output_codecs:
     vendor: ap10
     metadata_s: encoder="Apple ProRes 422 HQ"
     bitrate:
+    movie_ext: mov
 
   prores_422:
     overlay: delivery
@@ -285,6 +290,7 @@ output_codecs:
     vendor:
     metadata_s:
     bitrate: 175M
+    movie_ext: mov
   
   dnxhr_hqx:
     # https://askubuntu.com/questions/907398/how-to-convert-a-video-with-ffmpeg-into-the-dnxhd-dnxhr-format
@@ -309,34 +315,32 @@ output_codecs:
     vendor:
     metadata_s:
     bitrate: 175M
+    movie_ext: mov
   
   mjpeg:
-  # Special codec to concatenate input images into a quicktime container, for example if you want to 
-  # turn a jpeg sequence into a photo jpeg quicktime
-  
-  concat:
-    name: concat
+    # Special codec to concatenate input images into a quicktime container
+    name: mjpeg
     overlay: internal_daily
-    width:
-    height:
+    cropwidth:
+    cropheight: 
+    width: 1920
+    height: 1080
     fit:
     framerate:
     codec: copy
     profile:
+    # Jpeg compression quality: 0-100
+    quality: 90
     qscale:
-    preset: 
-    keyint: 
+    preset:
+    keyint:
     bframes:
-    tune: 
+    tune:
     crf:
     pix_fmt:
-    vf:
-    bitdepth:
+    vf: colormatrix=bt601:bt709
+    bitdepth: 8
     vendor:
     metadata_s:
     bitrate:
-
-input_codecs:
-  # Default - assumes an exr floating point input image
-  imgseq_float:
-
+    movie_ext: mov

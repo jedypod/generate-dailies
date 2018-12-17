@@ -57,7 +57,7 @@ DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "DAILIES_CONFIG.yaml")
 DEFAULT_CODEC = 'h264_hq'
 DEFAULT_DAILIES_PROFILE = 'internal'
 
-DEBUG = True
+DEBUG = False
 
 log = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ class GenerateDaily():
 		self.output_height = self.globals_config['height']
 
 		# !! BUG codec override of resolution into globals not working. Maybe revisit why resolution is even in globals.
-		print("RESOLUTION!", self.output_width, self.output_height)
+		# print("RESOLUTION!", self.output_width, self.output_height)
 
 		# If output width or height is not defined, we need to calculate it from the input images
 		if not self.output_width or not self.output_height:
@@ -290,10 +290,24 @@ class GenerateDaily():
 
 
 		if not DEBUG:
-			# Invoke ffmpeg subprocess
-			ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+			if self.codec_config['name'] == 'mjpeg':
+				print("!!!!!")
+
+				magick_cmd = "magick -size {0}x{1} -depth {2} - -quality 90 jpeg:-".format(self.output_width, self.output_height, self.codec_config['bitdepth'])
+				log.debug("ImageMagick Command: \n\t\t\t\t{0}".format(magick_cmd))
+				magick_proc = subprocess.Popen(shlex.split(magick_cmd),
 				stdin=subprocess.PIPE,
 				stdout=subprocess.PIPE)
+				
+				ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+					stdin=magick_proc.stdout,
+					stdout=subprocess.PIPE)
+			else:
+				# Invoke ffmpeg subprocess
+				ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+					stdin=subprocess.PIPE,
+					stdout=subprocess.PIPE)
+
 
 
 		# Loop through every frame, passing the result to the ffmpeg subprocess
@@ -313,7 +327,12 @@ class GenerateDaily():
 
 
 			if not DEBUG:
-				buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
+				if self.codec_config['name'] == 'mjpeg':
+					buf.get_pixels(self.pixel_data_type).tofile(magick_proc.stdin)
+					# magick_proc.stdout.close()
+					# result, error = ffproc.communicate()
+				else:
+					buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
 			else:
 				buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
 			
@@ -381,16 +400,21 @@ class GenerateDaily():
 			A string containing the entire ffmpeg command to run.
 		"""
 
+		# ffmpeg-10bit No longer necessary in ffmpeg > 4.1
+		ffmpeg_command = "ffmpeg"
+
 		if self.codec_config['bitdepth'] >= 10:
-			ffmpeg_command = "ffmpeg"
 			pixel_format = "rgb48le"
 		else:
-			ffmpeg_command = "ffmpeg"
 			pixel_format = "rgb24"
 
-		# Set up input arguments for pipe:
-		args = "{0} -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
-			ffmpeg_command, pixel_format, self.globals_config['width'], self.globals_config['height'], self.globals_config['framerate'])
+		if self.codec_config['name'] == 'mjpeg':
+			# Set up input arguments for frame input through pipe:
+			args = "{0} -y -framerate {1} -i pipe:0".format(ffmpeg_command, self.globals_config['framerate'])
+		else:
+			# Set up input arguments for raw video and pipe:
+			args = "{0} -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
+				ffmpeg_command, pixel_format, self.globals_config['width'], self.globals_config['height'], self.globals_config['framerate'])
 		
 		# Add timecode so that start frame will display correctly in RV etc
 		args += " -timecode {0}".format(self.start_tc)
@@ -517,19 +541,24 @@ class GenerateDaily():
 					cropheight = int(float(cropheight.split('%')[0])/100*iheight)
 					log.info("Got crop height percentage: {0}px".format(cropheight))
 
-
-			#############
-			#
-			buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(int(cropwidth / 2), int(iwidth - cropwidth / 2), int(cropheight / 2), int(iheight - cropheight / 2)))
+			log.debug("Not Yet CROPPED:{0} {1}".format(buf.spec().width, buf.spec().height))
 			
-			buf.set_full(int(cropwidth / 2), int(iwidth - cropwidth / 2), int(cropheight / 2), int(iheight - cropheight / 2), 0, 0)
+			buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(int(cropwidth / 2), int(iwidth - cropwidth / 2), int(cropheight / 2), int(iheight - cropheight / 2)))
+
+			# Remove data window of buffer so resize works from cropped region
+			buf.set_full(buf.roi.xbegin, buf.roi.xend, buf.roi.ybegin, buf.roi.yend, buf.roi.chbegin, buf.roi.chend)
 
 			log.debug("CROPPED:{0} {1}".format(buf.spec().width, buf.spec().height))
 
 			# Recalculate input resolution and aspect ratio - since it may have changed with crop
-			iwidth = iwidth - cropwidth / 2
-			iheight = iheight - cropheight / 2
+			iwidth = buf.spec().width
+			iheight = buf.spec().height
 			iar = float(iwidth) / float(iheight)
+			oheight_noar = int(self.output_width / iar)
+			
+			log.debug("iwidth:{0} x iheight:{1} x iar: {2}".format(iwidth, iheight, iar))
+
+
 
 		# Apply Resize / Fit
 		# If input and output resolution are the same, do nothing
@@ -540,12 +569,14 @@ class GenerateDaily():
 
 		identical = self.output_width == iwidth and self.output_height == iheight
 		resize = not identical and resize
+		
+
 		if resize:
-			log.info("Performing Resize: \n\tinput: {0}x{1} ar{2}\n\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, self.output_width, self.output_height, oar))
+			log.info("Performing Resize: \n\t\t\tinput: {0}x{1} ar{2}\n\t\t\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, self.output_width, self.output_height, oar))
 
 			if iwidth != self.output_width:
 				# Perform resize, no change in AR
-				log.debug("{0}, {1}".format(oheight_noar, px_filter))
+				log.debug("iwidth does not equal output_width: oheight noar: {0}, pxfilter: {1}".format(oheight_noar, px_filter))
 				
 				#############
 				#
