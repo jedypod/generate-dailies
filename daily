@@ -291,16 +291,16 @@ class GenerateDaily():
 
 		if not DEBUG:
 			if self.codec_config['name'] == 'mjpeg':
-				print("!!!!!")
 
-				magick_cmd = "magick -size {0}x{1} -depth {2} - -quality 90 jpeg:-".format(self.output_width, self.output_height, self.codec_config['bitdepth'])
+				magick_cmd = "gm convert -size {0}x{1} -depth {2} rgb:- -quality 90 jpeg:-".format(self.output_width, self.output_height, self.codec_config['bitdepth'])
 				log.debug("ImageMagick Command: \n\t\t\t\t{0}".format(magick_cmd))
-				magick_proc = subprocess.Popen(shlex.split(magick_cmd),
+				gmproc = subprocess.Popen(shlex.split(magick_cmd),
 				stdin=subprocess.PIPE,
 				stdout=subprocess.PIPE)
+				# gmproc.wait()
 				
 				ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
-					stdin=magick_proc.stdout,
+					stdin=gmproc.stdout,
 					stdout=subprocess.PIPE)
 			else:
 				# Invoke ffmpeg subprocess
@@ -328,14 +328,26 @@ class GenerateDaily():
 
 			if not DEBUG:
 				if self.codec_config['name'] == 'mjpeg':
-					buf.get_pixels(self.pixel_data_type).tofile(magick_proc.stdin)
-					# magick_proc.stdout.close()
+					buf.get_pixels(self.pixel_data_type).tofile(gmproc.stdin)
+					# gmproc.communicate(buf.get_pixels(self.pixel_data_type).tostring())
+					gmproc.communicate()
+					
+					#!!! TODO - need to figure out how to make piped processes work
+
+					# ffproc.communicate()
+					# gmproc.stdout.flush()
+					# gmproc.stdout.close()
 					# result, error = ffproc.communicate()
+					# gmproc.communicate()
 				else:
 					buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
+
 			else:
 				buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
-			
+
+
+		
+		# result, error = gmproc.communicate()
 		# result, error = ffproc.communicate()
 
 		elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
