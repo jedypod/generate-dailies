@@ -306,14 +306,16 @@ class GenerateDaily():
                 #     stdout=subprocess.PIPE)
             # else:
 				
-				ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
-					stdin=gmproc.stdout,
-					stdout=subprocess.PIPE)
+				# ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+				# 	stdin=gmproc.stdout,
+				# 	stdout=subprocess.PIPE)
             
             # Invoke ffmpeg subprocess
-            ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
+            ffproc = subprocess.Popen(
+                shlex.split(ffmpeg_args),
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE)
+                stdout=subprocess.PIPE
+                )
 
 
 
