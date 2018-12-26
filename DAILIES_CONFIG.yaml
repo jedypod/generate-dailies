@@ -338,7 +338,7 @@ output_codecs:
     tune:
     crf:
     pix_fmt:
-    vf: colormatrix=bt601:bt709
+    vf:
     bitdepth: 8
     vendor:
     metadata_s:
