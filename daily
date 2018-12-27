@@ -3,7 +3,7 @@ from __future__ import with_statement
 from __future__ import print_function
 from __future__ import division
 
-import os, sys, yaml, re
+import os, sys, re
 from glob import glob
 import time, datetime
 import logging
@@ -15,8 +15,10 @@ import pyseq
 try:
     import OpenImageIO as oiio
     import numpy as np
+    import yaml
+    from PIL import Image
 except ImportError:
-    print("Error: Missing dependencies. Need OpenImageIO and NumPy. Also need Pillow for mjpeg codec conversion.")
+    print("Error: Missing dependencies. Need:\n\tOpenImageIO\n\tNumPy\n\tPyYAML\n\tPillow (for mjpeg codec conversion)")
 
 
 """
@@ -53,6 +55,11 @@ Returns:
 
 Raises:
     KeyError: Raises an exception.
+
+TODO
+    - Generalized metadata access
+    - Text from metadata information
+    - Add crop config and better textelement config options to the nuke setup tool
 """
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -191,9 +198,6 @@ class GenerateDaily():
         self.output_width = self.globals_config['width']
         self.output_height = self.globals_config['height']
 
-        # !! BUG codec override of resolution into globals not working. Maybe revisit why resolution is even in globals.
-        # print("RESOLUTION!", self.output_width, self.output_height)
-
         # If output width or height is not defined, we need to calculate it from the input images
         if not self.output_width or not self.output_height:
             buf = oiio.ImageBuf(image_sequence[0].path)
@@ -293,31 +297,12 @@ class GenerateDaily():
 
 
         if not DEBUG:
-            # # Pillow may be another option for RAW RGB -> JPEG conversion
-            # if self.codec_config['name'] == 'mjpeg':
-            	# gm_cmd = "gm convert -size {0}x{1} -depth {2} rgb:- -quality 90 jpeg:-".format(self.output_width, self.output_height, self.codec_config['bitdepth'])
-				# log.debug("ImageMagick Command: \n\t\t\t\t{0}".format(gm_cmd))
-				# gmproc = subprocess.Popen(shlex.split(gm_cmd),
-				# stdin=subprocess.PIPE,
-				# stdout=subprocess.PIPE)
-				# # gmproc.wait()
-                # ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
-                #     stdin=gmproc.stdout,
-                #     stdout=subprocess.PIPE)
-            # else:
-				
-				# ffproc = subprocess.Popen(shlex.split(ffmpeg_args),
-				# 	stdin=gmproc.stdout,
-				# 	stdout=subprocess.PIPE)
-            
             # Invoke ffmpeg subprocess
             ffproc = subprocess.Popen(
                 shlex.split(ffmpeg_args),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE
                 )
-
-
 
         # Loop through every frame, passing the result to the ffmpeg subprocess
         for i, self.frame in enumerate(self.image_sequence, 1):
@@ -337,19 +322,17 @@ class GenerateDaily():
 
             if not DEBUG:
                 if self.codec_config['name'] == 'mjpeg':
-                    # buf.get_pixels(self.pixel_data_type).tofile(magick_proc.stdin)
-                    # magick_proc.stdout.close()
-                    # result, error = ffproc.communicate()
-                    from PIL import Image
+                    # If MJPEG: convert from raw byte data to jpeg before passing to ffmpeg
                     pixels = buf.get_pixels(self.pixel_data_type)
                     jpeg_img = Image.fromarray(pixels)
-                    jpeg_img.save(ffproc.stdin, "JPEG", subsampling=0, quality=90)
+                    # https://pillow.readthedocs.io/en/5.2.x/handbook/image-file-formats.html#jpeg
+                    jpeg_img.save(ffproc.stdin, "JPEG", subsampling="4:4:4", quality=90)
                 else:
                     buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
             else:
                 buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
             
-        # result, error = ffproc.communicate()
+        result, error = ffproc.communicate()
 
         elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
         log.info("Total Processing Time: \t{0}".format(elapsed_time))
