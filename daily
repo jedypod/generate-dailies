@@ -56,7 +56,7 @@ Returns:
 Raises:
     KeyError: Raises an exception.
 
-TODO
+TODO 
     - Generalized metadata access
     - Text from metadata information
     - Add crop config and better textelement config options to the nuke setup tool
@@ -173,7 +173,10 @@ class GenerateDaily():
 
 
         # Add datetime
-        datetime_format_string = self.profile_config.get('text_elements').get('datetime').get('datetime_format')
+        if self.profile_config.get('text_elements'):
+            datetime_format_string = self.profile_config.get('text_elements').get('datetime').get('datetime_format')
+        else:
+            datetime_format_string = None
         if datetime_format_string:
             self.text["datetime"] = datetime.datetime.now().strftime(datetime_format_string)
         else:
@@ -200,7 +203,7 @@ class GenerateDaily():
 
         # If output width or height is not defined, we need to calculate it from the input images
         if not self.output_width or not self.output_height:
-            buf = oiio.ImageBuf(image_sequence[0].path)
+            buf = oiio.ImageBuf(self.image_sequence[0].path)
             spec = buf.spec()
             iar = float(spec.width) / float(spec.height)
             if not self.output_width:
@@ -209,7 +212,7 @@ class GenerateDaily():
             if not self.output_height:
                 self.output_height = int(round(self.output_width / iar))
                 self.globals_config['height'] = self.output_height
-            buf.close()
+            # buf.close()
 
         self.setup_success = True
 
@@ -291,9 +294,10 @@ class GenerateDaily():
         self.static_text_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
         
         # Loop through each text element, create the text image, and add it to self.static_text_buf
-        text_elements = self.profile_config['text_elements']
-        for text_element_name, text_element in text_elements.iteritems():
-            self.generate_text(text_element_name, text_element, self.static_text_buf)
+        text_elements = self.profile_config.get('text_elements')        
+        if text_elements:
+            for text_element_name, text_element in text_elements.iteritems():
+                self.generate_text(text_element_name, text_element, self.static_text_buf)
 
 
         if not DEBUG:
@@ -315,9 +319,10 @@ class GenerateDaily():
             buf = self.process_frame(self.frame)
 
             # Set framecounter in text elements, add framecounter text
-            self.text['framecounter'] = str(self.frame.frame).zfill(text_elements['framecounter']['padding'])
-
-            buf = self.generate_text('framecounter', text_elements['framecounter'], buf)
+            if self.text:
+                if self.text.get('framecounter'):
+                    self.text['framecounter'] = str(self.frame.frame).zfill(text_elements.get('framecounter').get('padding'))
+                    buf = self.generate_text('framecounter', text_elements.get('framecounter'), buf)
 
 
             if not DEBUG:
@@ -487,22 +492,22 @@ class GenerateDaily():
         iheight = spec.height
         iar = float(iwidth) / float(iheight)
 
-        px_filter = self.globals_config['filter']
-        self.output_width = self.globals_config['width']
-        self.output_height = self.globals_config['height']
-        fit = self.globals_config['fit']
-        cropwidth = self.globals_config['cropwidth']
-        cropheight = self.globals_config['cropheight']
+        px_filter = self.globals_config.get('filter')
+        self.output_width = self.globals_config.get('width')
+        self.output_height = self.globals_config.get('height')
+        fit = self.globals_config.get('fit')
+        cropwidth = self.globals_config.get('cropwidth')
+        cropheight = self.globals_config.get('cropheight')
 
         # Remove alpha channel
         oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 
         # Apply OCIO Display
-        ocioconfig = self.globals_config['ocioconfig']
-        ociocolorconvert = self.globals_config['ociocolorconvert']
-        ociolook = self.globals_config['ociolook']
-        ociodisplay = self.globals_config['ociodisplay']
-        ocioview = self.globals_config['ocioview']
+        ocioconfig = self.globals_config.get('ocioconfig')
+        ociocolorconvert = self.globals_config.get('ociocolorconvert')
+        ociolook = self.globals_config.get('ociolook')
+        ociodisplay = self.globals_config.get('ociodisplay')
+        ocioview = self.globals_config.get('ocioview')
         if ocioconfig:
             if ociocolorconvert:
                 oiio.ImageBufAlgo.ociocolorconvert(buf, buf, ociocolorconvert, ocioview, colorconfig=ocioconfig)
@@ -602,12 +607,14 @@ class GenerateDaily():
 
 
         # Apply Cropmask if enabled
-        cropmask_config = self.profile_config['cropmask']
-
-        enable_cropmask = cropmask_config['enable']
+        cropmask_config = self.profile_config.get('cropmask')
+        if cropmask_config:
+            enable_cropmask = cropmask_config.get('enable')
+        else:
+            enable_cropmask = False
         if enable_cropmask:
-            cropmask_ar = cropmask_config['aspect']
-            cropmask_opacity = cropmask_config['opacity']
+            cropmask_ar = cropmask_config.get('aspect')
+            cropmask_opacity = cropmask_config.get('opacity')
 
             if not cropmask_ar or not cropmask_opacity:
                 log.error("Cropmask enabled, but no crop specified. Skipping cropmask...")

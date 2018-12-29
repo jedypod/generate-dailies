@@ -11,8 +11,8 @@ globals:
   ocioview: RRT
 
   # Not implemented yet
-  ociocolorconvert: 
-  ociolook: 
+  # ociocolorconvert: 
+  # ociolook: 
 
   ###############################################
   ## Reformatting and Cropping
@@ -24,8 +24,8 @@ globals:
   cropwidth:
   cropheight: 
   # width and height are the resolution to reformat to. 
-  width: 1920
-  height: 1080
+  width:
+  height:
   # If fit=false there will be no padding: height will be ignored and the aspect ratio of the input will be preserved.
   fit: true
 
@@ -96,7 +96,7 @@ profiles:
       enable: true
       aspect: 1.85
       opacity: 0.5
-      
+
     text_elements:
       datetime:
         enable: true
@@ -162,6 +162,7 @@ profiles:
     cropmask:
     framecounter:
     slate:
+    text_elements:
 
 # Output profile definitions.
 output_codecs:

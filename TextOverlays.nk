@@ -2,17 +2,30 @@ set cut_paste_input [stack 0]
 push $cut_paste_input
 Group {
  name DailiesTextOverlay
+ selected true
+ xpos 440
+ ypos 1107
  addUserKnob {20 DailiesTextOverlay}
  addUserKnob {2 font}
- font /mnt/cave/dev/__pipeline-tools/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
- addUserKnob {22 process l "Print Config" t "Print yaml config for text nodes inside. \n\nEach text node is a text element with a size location and color. \n\nClicking this button prints a yaml config that you can copy/paste into the config file. \n\n\n\n\n\n\n" T "node = nuke.thisNode()\nnuke.root().begin()\nnode.begin()\nwidth = node.width()\nheight = node.height()\n\nfor n in nuke.allNodes('Text'):\n    text_element_name = n.name()\n    font = n\['font'].evaluate()\n    font_size = n\['size'].getValue() / width\n    box = n\['box'].getValue()\n    box = \[box\[0] / width, box\[1] / height, box\[2] / width, box\[3] / height]\n    color = n\['color'].getValue()\n    justify = n\['xjustify'].value()\n    text_element = \"\"\"\n\{0\}:\n  enable: true\n  prefix:\n  font: \{1\}\n  font_size: \{2\}\n  # Position a box: 2 x/y coordinates: \[LL, UR]. 0,0 is Lower Left (Nuke-style)\n  box: \{3\}\n  font_color: \{4\}\n  justify: \{5\} \n\"\"\".format( text_element_name, font, font_size, box, color, justify )\n    if text_element_name == \"datetime\":\n        text_element = text_element + \"\"\"  # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior\n  # Specify the datetime format. For example \"%Y-%m-%dT%H:%M:%S\" is ISO 8601 standard date format\n  # This would be Mon July 7 2017 23h13: \"%a %b %d %Y %Hh%M\"\n  datetime_format: \"%Y-%m-%d %Hh%M\"\n\"\"\"\n    nuke.tprint(text_element)" +STARTLINE}
+ font ~/dev/generate_dailies/generate-dailies/fonts/Helvetica/Helvetica.ttf
+ addUserKnob {22 process l "Print Config" t "Print yaml config for text nodes inside. \n\nEach text node is a text element with a size location and color. \n\nClicking this button prints a yaml config that you can copy/paste into the config file. \n\n\n\n\n\n\n" T "node = nuke.thisNode()\nnuke.root().begin()\nnode.begin()\nwidth = node.width()\nheight = node.height()\n\ntext_elements = \"\"\nfor n in nuke.allNodes('Text'):\n    text_element_name = n.name()\n    font = n\['font'].evaluate()\n    font_size = n\['size'].getValue() / width\n    box = n\['box'].getValue()\n    box = \[box\[0] / width, box\[1] / height, box\[2] / width, box\[3] / height]\n    color = n\['color'].getValue()\n    justify = n\['xjustify'].value()\n    text_element = \"\"\"\n\{0\}:\n  enable: true\n  prefix:\n  font: \{1\}\n  font_size: \{2\}\n  # Position a box: 2 x/y coordinates: \[LL, UR]. 0,0 is Lower Left (Nuke-style)\n  box: \{3\}\n  font_color: \{4\}\n  justify: \{5\} \n\"\"\".format( text_element_name, font, font_size, box, color, justify )\n    if text_element_name == \"datetime\":\n        text_element = text_element + \"\"\"  # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior\n  # Specify the datetime format. For example \"%Y-%m-%dT%H:%M:%S\" is ISO 8601 standard date format\n  # This would be Mon July 7 2017 23h13: \"%a %b %d %Y %Hh%M\"\n  datetime_format: \"%Y-%m-%d %Hh%M\"\n\"\"\"\n    text_elements += text_element\nnuke.message(text_elements)" +STARTLINE}
 }
  Input {
   inputs 0
   name Input
   xpos -230
-  ypos -872
+  ypos -945
  }
+ Dot {
+  name Dot1
+  label " "
+  note_font "Helvetica Bold Bold"
+  note_font_size 24
+  note_font_color 0xa5a5a501
+  xpos -196
+  ypos -906
+ }
+set N5d883790 [stack 0]
  Text {
   message "Jed Smith"
   font "\[value parent.font]"
@@ -25,7 +38,7 @@ Group {
   color {0.8 0.8 0.8 1}
   name artist
   xpos -230
-  ypos -708
+  ypos -726
  }
  Text {
   message "This is a long comment you motherfucker. Just final it. I would also like to point out that this plate is shit and I really don't like it but I do find that the director is also shit. Oh well, I guess I'll just keep working."
@@ -84,11 +97,25 @@ Group {
   xpos -230
   ypos -313
  }
+push $N5d883790
+ Rectangle {
+  area {0 0 {width} 1080}
+  name Rectangle1
+  selected true
+  xpos -360
+  ypos -909
+  addUserKnob {20 User}
+  addUserKnob {7 input_ar l "" +STARTLINE R 0 4}
+  input_ar {{width/height}}
+  addUserKnob {7 aspect l "" +STARTLINE R 0 3}
+  aspect 1.85
+  addUserKnob {7 arpx l "" +STARTLINE}
+  arpx {{"aspect - input_ar * height"}}
+ }
  Viewer {
   frame_range 1-100
-  viewerProcess "RRT (ACES)"
   name Viewer1
-  xpos -136
-  ypos -54
+  xpos -219
+  ypos -37
  }
 end_group
