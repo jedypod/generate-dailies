@@ -254,9 +254,11 @@ class GenerateDaily():
         movie_location = self.globals_config['movie_location']
         if movie_location.startswith('/'):
             self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_filename)
+        elif "~" in movie_location:
+            movie_location = os.path.expanduser(movie_location)
+            self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
         else:
             self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
-
 
         # Set up Logger
         log_fullpath = os.path.splitext(self.movie_fullpath)[0] + ".log"
@@ -314,7 +316,7 @@ class GenerateDaily():
             log.info("Processing frame {0:04d}: \t{1:04d} of {2:04d}".format(self.frame.frame, i, self.image_sequence.length()))
             # elapsed_time = datetime.timedelta(seconds = time.time() - start_time)
             # log.info("Time Elapsed: \t{0}".format(elapsed_time))
-
+            frame_start_time = time.time()
 
             buf = self.process_frame(self.frame)
 
@@ -337,6 +339,9 @@ class GenerateDaily():
             else:
                 buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
             
+            frame_elapsed_time = datetime.timedelta(seconds=time.time() - frame_start_time)
+            log.info("Frame Processing Time: \t{0}".format(frame_elapsed_time))
+
         result, error = ffproc.communicate()
 
         elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
@@ -504,11 +509,12 @@ class GenerateDaily():
 
         # Apply OCIO Display
         ocioconfig = self.globals_config.get('ocioconfig')
+        log.debug("OCIO CONFIG: {0}".format(ocioconfig))
         ociocolorconvert = self.globals_config.get('ociocolorconvert')
         ociolook = self.globals_config.get('ociolook')
         ociodisplay = self.globals_config.get('ociodisplay')
         ocioview = self.globals_config.get('ocioview')
-        if ocioconfig:
+        if ocioconfig and os.path.exists(ocioconfig):
             if ociocolorconvert:
                 oiio.ImageBufAlgo.ociocolorconvert(buf, buf, ociocolorconvert, ocioview, colorconfig=ocioconfig)
             if ociolook:

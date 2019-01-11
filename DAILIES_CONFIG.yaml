@@ -4,11 +4,11 @@ globals:
   ###############################################
 
   # Path to the ocio config to use
-  ocioconfig: /Users/jed/dev/ocio/aces/config.ocio
+  ocioconfig: /af/show/oa/assets/lut/ocio_config/publish/main/lut/v010/bundle/config.ocio
   # ocio display transform
-  ociodisplay: ACES
+  ociodisplay: client
   # ocio view transform 
-  ocioview: RRT
+  ocioview: Log
 
   # Not implemented yet
   # ociocolorconvert: 
@@ -61,7 +61,7 @@ globals:
   output_codec: h264_hq
   # Movie location is a relative or absolute path for where to place the daily movie
   # For example ../ will place it in the directory above the frames. /place/output will place it here.
-  movie_location: ../
+  movie_location: ~/tmp/dailies
   movie_ext: mov
   # If true, appends "_<codec name>" to the movie file
   movie_append_codec: true
