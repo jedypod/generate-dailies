@@ -64,7 +64,7 @@ TODO
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
-DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "DAILIES_CONFIG.yaml")
+DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "dailies-config.yaml")
 DEFAULT_CODEC = 'h264_hq'
 DEFAULT_DAILIES_PROFILE = 'internal'
 
@@ -103,24 +103,29 @@ class GenerateDaily():
             return
 
         # Get list of possible output profiles from config.
-        output_codecs = config["output_codecs"].keys()
+        output_codecs = config.get("output_codecs").keys()
         output_codecs.sort()
 
         # Get list of dailies profiles
-        dailies_profiles = config["profiles"].keys()
-
+        dailies_profiles = config.get("dailies_profiles")
+        ocio_profiles = config.get("ocio_profiles")
+        
         # Parse input arguments
         parser = argparse.ArgumentParser(description='Process given exr image sequence with ocio display, resize and output to stdout.')
-        parser.add_argument("input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.", required=True)
+        parser.add_argument("input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
         parser.add_argument("-c", "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
-        parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles)))
+        parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles.keys())))
         parser.add_argument("-t", '--text', help="Text elements and contents to add: e.g. \n\t\"artist: Jed Smith | comment: this is stupid man|")
+        parser.add_argument("--ocio", help="OCIO Colorspace Conversion to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
         args = parser.parse_args()
 
         input_path = args.input_path
         codec = args.codec
         input_dailies_profile = args.profile
         texts = args.text
+        commandline_ocio_profile = args.ocio
+
+
         if texts:
             texts = texts.split('|')
         else:
@@ -147,12 +152,12 @@ class GenerateDaily():
             return
 
         # Get Config dicts for globals and the "codec" config from the config file
-        self.globals_config = config["globals"]
+        self.globals_config = config.get("globals")
 
 
         # Use default output codec from config if none specified.
         if not codec:
-            config_default_codec = self.globals_config['output_codec']
+            config_default_codec = self.globals_config.get('output_codec')
             if config_default_codec:
                 codec = config_default_codec
             else:
@@ -164,12 +169,14 @@ class GenerateDaily():
 
         self.codec_config = config["output_codecs"][codec]
 
+        
+
 
         # Get dailies profile config
         if not input_dailies_profile:
             input_dailies_profile = DEFAULT_DAILIES_PROFILE
 
-        self.profile_config = config["profiles"][input_dailies_profile]
+        self.profile_config = config.get("dailies_profiles")[input_dailies_profile]
 
 
         # Add datetime
@@ -183,13 +190,49 @@ class GenerateDaily():
             self.text['datetime'] = datetime.datetime.now().replace(microsecond=0).isoformat()
 
 
-
+        #############################################################################################################
         # Validate config information.  Directly modifies the self.globals_config and self.codec_config vars
+        #############################################################################################################
+
+
+        #####################################
+        # Set up OCIO color transform
+        # -----------------------------------
+
+        # Get OCIO config and verify it exists
+        self.ocioconfig = self.globals_config.get('ocioconfig')
+        if not os.path.exists(self.ocioconfig):
+            log.warning("OCIO Config does not exist: \n\t{0}\n\tNo OCIO color transform will be applied".format(
+                self.ocioconfig))
+            self.ocioconfig = None
 
         # Try to get ocio config from $OCIO env-var if it's not defined
-        if not self.globals_config['ocioconfig']:
+        if not self.globals_config.get('ocioconfig'):
             if os.getenv("OCIO"):
                 self.globals_config['ocioconfig'] = os.getenv("OCIO")
+
+        # Get default ocio transform to use if none is passed by commandline
+        ocio_default_transform = self.globals_config.get("ocio_default_transform")
+
+        # Set self.ociocolorconvert: the colorspace transformation to use in processing
+        if commandline_ocio_profile:
+            # Check if specified ocio profile exists in the config
+            if commandline_ocio_profile in ocio_profiles.keys():
+                self.ociocolorconvert = ocio_profiles.get(commandline_ocio_profile).get('ociocolorconvert')
+            else:
+                print("Error: OCIO color transform {0} does not exist in config. Falling back to default {1}".format(commandline_ocio_profile, ocio_default_transform))
+                self.ociocolorconvert = ocio_profiles.get(ocio_default_transform).get('ociocolorconvert')
+        elif ocio_default_transform:
+            self.ociocolorconvert = ocio_profiles.get(ocio_default_transform).get('ociocolorconvert')
+        else:
+            # No ocio color transform specified
+            print("Warning: No default ocio transform specified, and no transform specified on the commandline. No color tranform will occur.")
+            self.ociocolorconvert = None
+                
+        # Only colorconvert is implemented for now
+        # self.ociolook = self.globals_config.get('ociolook')
+        # self.ociodisplay = self.globals_config.get('ociodisplay')
+        # self.ocioview = self.globals_config.get('ocioview')
 
 
 
@@ -290,16 +333,6 @@ class GenerateDaily():
             self.pixel_data_type = oiio.UINT16
         else:
             self.pixel_data_type = oiio.UINT8
-
-        # Get ocio variables
-        self.ocioconfig = self.globals_config.get('ocioconfig')
-        if not os.path.exists(self.ocioconfig):
-            log.warning("OCIO Config does not exist: \n\t{0}\n\tNo OCIO color transform will be applied".format(self.ocioconfig))
-            self.ocioconfig = None
-        self.ociocolorconvert = self.globals_config.get('ociocolorconvert')
-        self.ociolook = self.globals_config.get('ociolook')
-        self.ociodisplay = self.globals_config.get('ociodisplay')
-        self.ocioview = self.globals_config.get('ocioview')
 
 
         # Get timecode based on frame
@@ -676,6 +709,9 @@ class GenerateDaily():
     def apply_ocio_transform(self, buf):
         """
         Applies an ocio transform specified in the config. Can be a ociodisplay, colorconvert, or look transform
+        For now only colorconvert is supported.
+        Reads from self.ocioconfig to specify the ocio config to use.
+        Reads from self.ociocolorconvert, a two item list. [0] is src, [1] is dst colorspace.
         
         Args:
             buf: oiio.ImageBuf object representing the image to be transformed.
@@ -683,10 +719,14 @@ class GenerateDaily():
         Returns:
             Returns the modified oiio.ImageBuf object which holds the altered image data.
         """
-        if self.ocioconfig:
+        
         if self.ociocolorconvert:
             log.debug("Applying OCIO Config: \n\t{0}\n\t{1} -> {2}".format(self.ocioconfig, self.ociocolorconvert[0], self.ociocolorconvert[1]))
-            buf = oiio.ImageBufAlgo.colorconvert(buf, self.ociocolorconvert[0], self.ociocolorconvert[1], colorconfig=self.ocioconfig)
+            success = oiio.ImageBufAlgo.colorconvert(buf, buf, self.ociocolorconvert[0], self.ociocolorconvert[1], colorconfig=self.ocioconfig)
+            if not success:
+                log.error("Error: OCIO Color Convert failed. Please check that you have the specified colorspaces in your OCIO config.")
+                
+        # Only colorconvert is implemented for now.
 
         # if self.ociolook:
         #     oiio.ImageBufAlgo.ociolook(buf, buf, self.ociolook, self.ocioview, colorconfig=self.ocioconfig)

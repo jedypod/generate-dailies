@@ -1,7 +1,9 @@
 globals:
   # Path to the ocio config to use
-  ocioconfig: /mnt/cave/dev/ocio/aces/config.ocio
-
+  ocioconfig: /af/show/oa/assets/lut/ocio_config/publish/main/lut/v010/bundle/config.ocio
+  # Default ocio profile to use if not specified on the commandline
+  ocio_default_transform: show_log
+  
   ###############################################
   ## Reformatting and Cropping
   ###############################################
@@ -49,7 +51,7 @@ globals:
   output_codec: h264_hq
   # Movie location is a relative or absolute path for where to place the daily movie
   # For example ../ will place it in the directory above the frames. /place/output will place it here.
-  movie_location: ../
+  movie_location: ~/tmp/dailies
   movie_ext: mov
   # If true, appends "_<codec name>" to the movie file
   movie_append_codec: true
@@ -60,15 +62,11 @@ globals:
 ###############################################
 
 ocio_profiles:
-  trib:
-    name: trib
-    # Type of ocio transform. Can be [display, colorconvert, look]
-    type: display
-    # ocio display transform: Need [display, view, fromspace] - e.g. ["rec709", "Show LUT", "lin_ap1"]
-    ociodisplay: ["bt709", "trib", "lin_ap0"]
-    # [src_colorspace, dst_colorspace]
-    ociocolorconvert: ["Utility - Raw", "trib_lut"]
-    # ociolook:
+  grade:
+    # ocio colorspace conversion: [src_colorspace, dst_colorspace]
+    ociocolorconvert: ["linear", "client_grade"]
+  show_log:
+    ociocolorconvert: ["linear", "REDLog3G10"]
 
 ###############################################
 ## Dailies Overlay Profiles
@@ -76,7 +74,7 @@ ocio_profiles:
 
 
 # Dailies overlay profiles to use for different purposes. Each profile allows you to specify an overlay behavior.
-profiles:
+dailies_profiles:
   # Internal Daily: overlays for frame counter, artist, comment, date, etc
   internal:
     # path to ttf font file
