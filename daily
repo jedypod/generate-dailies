@@ -25,12 +25,12 @@ except ImportError:
     Daily
     ---------------------
     This is a program to render a dailies movie from an input image sequence (jpegs or exrs).
-    It reads from a configuration file to define things like resize, color transforms, padding, 
+    It reads from a configuration file to define things like resize, color transforms, padding,
     text overalys, slate frames and so forth.
 
 """
 """
-    Commandline python program to take an openexr image sequence, apply an ocio display transform, resize, 
+    Commandline python program to take an openexr image sequence, apply an ocio display transform, resize,
     and output to sdtout as raw uint16 byte data.
     Inputs:
         image sequence in /path/to/imagename.%05d.exr format
@@ -40,7 +40,7 @@ except ImportError:
         resize width
         resize pad to fit (optional)
     Example Command:
-    ./exrpipe -i '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/monkey_test/M07-2031.%05d.exr' -s 190 -e 200 -d ACES -v RRT -r 2048x1152 | ffmpeg-10bit -f rawvideo -pixel_format rgb48le -video_size 1920x1080 -framerate 24 -i pipe:0 
+    ./exrpipe -i '/mnt/cave/dev/__pipeline-tools/generate_dailies/test_footage/monkey_test/M07-2031.%05d.exr' -s 190 -e 200 -d ACES -v RRT -r 2048x1152 | ffmpeg-10bit -f rawvideo -pixel_format rgb48le -video_size 1920x1080 -framerate 24 -i pipe:0
     -c:v libx264 -profile:v high444 -preset veryslow -g 1 -tune film -crf 13 -pix_fmt yuv444p10le -vf "colormatrix=bt601:bt709" test.mov
 """
 """
@@ -56,7 +56,7 @@ Returns:
 Raises:
     KeyError: Raises an exception.
 
-TODO 
+TODO
     - Generalized metadata access
     - Text from metadata information
     - Add crop config and better textelement config options to the nuke setup tool
@@ -87,7 +87,7 @@ class GenerateDaily():
         self.start_time = time.time()
         self.setup_success = False
 
-        
+
         # Parse Config File
         DAILIES_CONFIG = os.getenv("DAILIES_CONFIG")
         if not DAILIES_CONFIG:
@@ -133,7 +133,7 @@ class GenerateDaily():
             key = key.strip()
             value = value.strip()
             self.text[key] = value
-            
+
         # Use current directory if no input path specified
         if not input_path:
             input_path = os.getcwd()
@@ -168,7 +168,7 @@ class GenerateDaily():
         # Get dailies profile config
         if not input_dailies_profile:
             input_dailies_profile = DEFAULT_DAILIES_PROFILE
-        
+
         self.profile_config = config["profiles"][input_dailies_profile]
 
 
@@ -181,15 +181,17 @@ class GenerateDaily():
             self.text["datetime"] = datetime.datetime.now().strftime(datetime_format_string)
         else:
             self.text['datetime'] = datetime.datetime.now().replace(microsecond=0).isoformat()
-            
 
 
-        # Validate config information.  Directly modifies the self.globals_config and self.codec_config vars        
+
+        # Validate config information.  Directly modifies the self.globals_config and self.codec_config vars
 
         # Try to get ocio config from $OCIO env-var if it's not defined
         if not self.globals_config['ocioconfig']:
             if os.getenv("OCIO"):
                 self.globals_config['ocioconfig'] = os.getenv("OCIO")
+
+
 
         # Anything with the same name in the codec config overrides the globals
         for key, value in self.codec_config.iteritems():
@@ -228,12 +230,12 @@ class GenerateDaily():
             None
         """
 
-        
+
         # Set up movie file location and naming
-        
+
         # Crop separating character from sequence basename if there is one.
         seq_basename = self.image_sequence.head()
-        
+
         if seq_basename.endswith(self.image_sequence.parts[-2]):
             seq_basename = seq_basename[:-1]
 
@@ -248,7 +250,7 @@ class GenerateDaily():
         else:
             movie_basename = seq_basename
             movie_filename = seq_basename + "." + movie_ext
-        
+
 
         # Handle relative / absolute paths for movie location
         movie_location = self.globals_config['movie_location']
@@ -259,7 +261,7 @@ class GenerateDaily():
             self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
         else:
             self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
-        
+
         # Check output dir exists
         if not os.path.exists(os.path.dirname(self.movie_fullpath)):
             print("Output directory does not exist: \n\t{0}".format(os.path.dirname(self.movie_fullpath)))
@@ -289,9 +291,22 @@ class GenerateDaily():
         else:
             self.pixel_data_type = oiio.UINT8
 
+        # Get ocio variables
+        self.ocioconfig = self.globals_config.get('ocioconfig')
+        if not os.path.exists(self.ocioconfig):
+            log.warning("OCIO Config does not exist: \n\t{0}\n\tNo OCIO color transform will be applied".format(self.ocioconfig))
+            self.ocioconfig = None
+        self.ociocolorconvert = self.globals_config.get('ociocolorconvert')
+        self.ociolook = self.globals_config.get('ociolook')
+        self.ociodisplay = self.globals_config.get('ociodisplay')
+        self.ocioview = self.globals_config.get('ocioview')
+
+
+        # Get timecode based on frame
         tc = Timecode(self.globals_config['framerate'], start_timecode='00:00:00:00')
         self.start_tc = tc + self.image_sequence.start()
 
+        # Set up ffmpeg command
         ffmpeg_args = self.setup_ffmpeg()
 
         log.info("ffmpeg command:\n\t{0}".format(ffmpeg_args))
@@ -299,9 +314,9 @@ class GenerateDaily():
 
         # Static image buffer for text that doesn't change frame to frame
         self.static_text_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
-        
+
         # Loop through each text element, create the text image, and add it to self.static_text_buf
-        text_elements = self.profile_config.get('text_elements')        
+        text_elements = self.profile_config.get('text_elements')
         if text_elements:
             for text_element_name, text_element in text_elements.iteritems():
                 self.generate_text(text_element_name, text_element, self.static_text_buf)
@@ -344,7 +359,7 @@ class GenerateDaily():
                 result, error = ffproc.communicate()
             else:
                 buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
-            
+
             frame_elapsed_time = datetime.timedelta(seconds=time.time() - frame_start_time)
             log.info("Frame Processing Time: \t{0}".format(frame_elapsed_time))
 
@@ -358,10 +373,10 @@ class GenerateDaily():
     def get_image_sequences(self, input_path):
         """
         Get list of image sequence objects given a path on disk.
-        
+
         Args:
-            input_path: Input file path. Can be a directory or file or %05d / ### style 
-        
+            input_path: Input file path. Can be a directory or file or %05d / ### style
+
         Returns:
             An image sequence object.
         """
@@ -385,7 +400,7 @@ class GenerateDaily():
                 image_sequences = pyseq.get_sequences(dirname)
             else:
                 image_sequences = None
-        
+
         if image_sequences:
             if len(image_sequences) > 1:
                 image_sequence = image_sequences[0]
@@ -406,7 +421,7 @@ class GenerateDaily():
     def setup_ffmpeg(self):
         """
         Constructs an ffmpeg command based on the given codec config.
-        
+
         Returns:
             A string containing the entire ffmpeg command to run.
         """
@@ -426,13 +441,13 @@ class GenerateDaily():
             # Set up input arguments for raw video and pipe:
             args = "{0} -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
                 ffmpeg_command, pixel_format, self.globals_config['width'], self.globals_config['height'], self.globals_config['framerate'])
-            
+
         # Add timecode so that start frame will display correctly in RV etc
         args += " -timecode {0}".format(self.start_tc)
-        
+
         if self.codec_config['codec']:
             args += " -c:v {0}".format(self.codec_config['codec'])
-        
+
         if self.codec_config['profile']:
             args += " -profile:v {0}".format(self.codec_config['profile'])
 
@@ -453,7 +468,7 @@ class GenerateDaily():
 
         if self.codec_config['crf']:
             args += " -crf {0}".format(self.codec_config['crf'])
-            
+
         if self.codec_config['pix_fmt']:
             args += " -pix_fmt {0}".format(self.codec_config['pix_fmt'])
 
@@ -483,12 +498,12 @@ class GenerateDaily():
 
     def process_frame(self, frame):
         """
-        Apply all color and reformat / resize operations to input image, then return the imagebuf 
-        
+        Apply all color and reformat / resize operations to input image, then return the imagebuf
+
         Args:
             frame: pyseq Item object describing the current frame.
             framenumber: the current frame number
-        
+
         Returns:
             Returns an oiio.ImageBuf object which holds the altered image data.
         """
@@ -496,7 +511,7 @@ class GenerateDaily():
         # Setup image buffer
         buf = oiio.ImageBuf(frame.path)
         spec = buf.spec()
-        
+
         # Get Codec Config and gather information
         iwidth = spec.width
         iheight = spec.height
@@ -512,24 +527,8 @@ class GenerateDaily():
         # Remove alpha channel
         oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
 
-        # Apply OCIO Display
-        ocioconfig = self.globals_config.get('ocioconfig')
-        log.debug("OCIO CONFIG: {0}".format(ocioconfig))
-        ociocolorconvert = self.globals_config.get('ociocolorconvert')
-        ociolook = self.globals_config.get('ociolook')
-        ociodisplay = self.globals_config.get('ociodisplay')
-        ocioview = self.globals_config.get('ocioview')
-        if ocioconfig and os.path.exists(ocioconfig):
-            
-            if ociocolorconvert:
-                buf = oiio.ImageBufAlgo.ociocolorconvert(buf, ociocolorconvert, ocioview, colorconfig=ocioconfig)
-            if ociolook:
-                oiio.ImageBufAlgo.ociolook(buf, buf, ociolook, ocioview, colorconfig=ocioconfig)
-            if ociodisplay and ocioview: 
-                log.debug("Applying OCIO Config: {0}".format(ocioconfig))
-                # Apply OCIO display transform onto specified image buffer
-                buf = oiio.ImageBufAlgo.ociodisplay(buf, ociodisplay, ocioview, colorconfig=ocioconfig)
-
+        # Apply ocio color transform
+        buf = self.apply_ocio_transform(buf)
 
         # Setup for width and height
         if not self.output_width:
@@ -556,7 +555,7 @@ class GenerateDaily():
                     log.info("Got crop height percentage: {0}px".format(cropheight))
 
             log.debug("Not Yet CROPPED:{0} {1}".format(buf.spec().width, buf.spec().height))
-            
+
             buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(int(cropwidth / 2), int(iwidth - cropwidth / 2), int(cropheight / 2), int(iheight - cropheight / 2)))
 
             # Remove data window of buffer so resize works from cropped region
@@ -569,7 +568,7 @@ class GenerateDaily():
             iheight = buf.spec().height
             iar = float(iwidth) / float(iheight)
             oheight_noar = int(self.output_width / iar)
-            
+
             log.debug("iwidth:{0} x iheight:{1} x iar: {2}".format(iwidth, iheight, iar))
 
 
@@ -577,13 +576,13 @@ class GenerateDaily():
         # Apply Resize / Fit
         # If input and output resolution are the same, do nothing
         # If output width is bigger or smaller than input width, first resize without changing input aspect ratio
-        # If "fit" is true, 
-        # If output height is different than input height: transform by the output height - input height / 2 to center, 
+        # If "fit" is true,
+        # If output height is different than input height: transform by the output height - input height / 2 to center,
         # then crop to change the roi to the output res (crop moves upper left corner)
 
         identical = self.output_width == iwidth and self.output_height == iheight
         resize = not identical and resize
-        
+
 
         if resize:
             log.info("Performing Resize: \n\t\t\tinput: {0}x{1} ar{2}\n\t\t\toutput: {3}x{4} ar{5}".format(iwidth, iheight, iar, self.output_width, self.output_height, oar))
@@ -591,7 +590,7 @@ class GenerateDaily():
             if iwidth != self.output_width:
                 # Perform resize, no change in AR
                 log.debug("iwidth does not equal output_width: oheight noar: {0}, pxfilter: {1}".format(oheight_noar, px_filter))
-                
+
                 #############
                 #
                 if px_filter:
@@ -600,7 +599,7 @@ class GenerateDaily():
                     buf = oiio.ImageBufAlgo.resize(buf, px_filter, roi=oiio.ROI(0, self.output_width, 0, oheight_noar))
                 else:
                     buf = oiio.ImageBufAlgo.resize(buf, roi=oiio.ROI(0, self.output_width, 0, oheight_noar))
-                    
+
             if fit:
                 # If fitting is enabled..
                 height_diff = self.output_height - oheight_noar
@@ -616,7 +615,7 @@ class GenerateDaily():
                     # If we are padding...
                     buf = oiio.ImageBufAlgo.crop(buf, roi=oiio.ROI(0, self.output_width, 0, self.output_height))
                     buf = self.oiio_transform(buf, 0, height_diff/2)
-                        
+
 
 
         # Apply Cropmask if enabled
@@ -635,17 +634,17 @@ class GenerateDaily():
                 cropmask_height = int(round(self.output_width / cropmask_ar))
                 cropmask_bar = int((self.output_height - cropmask_height)/2)
                 log.debug("Cropmask height: \t{0} = {1} / {2} = {3} left".format(cropmask_height, self.output_height, cropmask_ar, cropmask_bar))
-                
+
                 cropmask_buf = oiio.ImageBuf(oiio.ImageSpec(self.output_width, self.output_height, 4, self.pixel_data_type))
-                
+
                 # Fill with black, alpha = cropmask opacity
                 oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, cropmask_opacity))
 
                 # Fill center with black
                 oiio.ImageBufAlgo.fill(cropmask_buf, (0, 0, 0, 0), oiio.ROI(0, self.output_width, cropmask_bar, self.output_height - cropmask_bar))
-                
+
                 # Merge cropmask and text over image
-                oiio.ImageBufAlgo.channels(buf, buf, (0,1,2, 1.0))
+                oiio.ImageBufAlgo.channels(buf, buf, (0, 1, 2, 1.0))
                 buf = oiio.ImageBufAlgo.over(cropmask_buf, buf)
                 buf = oiio.ImageBufAlgo.over(self.static_text_buf, buf)
                 oiio.ImageBufAlgo.channels(buf, buf, (0,1,2))
@@ -656,12 +655,12 @@ class GenerateDaily():
     def oiio_transform(self, buf, xoffset, yoffset):
         """
         Convenience function to reposition an image.
-        
+
         Args:
             buf: oiio.ImageBuf object representing the image to be transformed.
             xoffset: X offset in pixels
             yoffset: Y offset in pixels
-        
+
         Returns:
             Returns the modified oiio.ImageBuf object which holds the altered image data.
         """
@@ -674,15 +673,40 @@ class GenerateDaily():
 
 
 
+    def apply_ocio_transform(self, buf):
+        """
+        Applies an ocio transform specified in the config. Can be a ociodisplay, colorconvert, or look transform
+        
+        Args:
+            buf: oiio.ImageBuf object representing the image to be transformed.
+        
+        Returns:
+            Returns the modified oiio.ImageBuf object which holds the altered image data.
+        """
+        if self.ocioconfig:
+        if self.ociocolorconvert:
+            log.debug("Applying OCIO Config: \n\t{0}\n\t{1} -> {2}".format(self.ocioconfig, self.ociocolorconvert[0], self.ociocolorconvert[1]))
+            buf = oiio.ImageBufAlgo.colorconvert(buf, self.ociocolorconvert[0], self.ociocolorconvert[1], colorconfig=self.ocioconfig)
+
+        # if self.ociolook:
+        #     oiio.ImageBufAlgo.ociolook(buf, buf, self.ociolook, self.ocioview, colorconfig=self.ocioconfig)
+        # if self.ociodisplay and self.ocioview:
+        #     # Apply OCIO display transform onto specified image buffer
+        #     success = oiio.ImageBufAlgo.ociodisplay(buf, buf, self.ociodisplay, self.ocioview, colorconfig=self.ocioconfig)
+
+        return buf
+
+
+
     def generate_text(self, text_element_name, text_element, buf):
         """
         Generate text and write it into an image buffer.
-        
+
         Args:
             text_element_name: the name of the text element to search for in the config
             text_element: the config dict to use
             buf: the oiio.ImageBuf object to write the pixels into
-            
+
         Returns:
             Returns the modified oiio.ImageBuf object with text added.
         """
@@ -709,7 +733,7 @@ class GenerateDaily():
         justify = text_element['justify']
         if justify != "left" or justify != "center":
             justify = "left"
-        
+
 
         # Scale back to pixels from %
         box_ll = [int(box[0] * self.output_width), int(box[1] * self.output_height)]
@@ -719,7 +743,7 @@ class GenerateDaily():
         # Convert from Nuke-style (reference = lower left) to OIIO Style (reference = upper left)
         box_ll[1] = int(self.output_height - box_ll[1])
         box_ur[1] = int(self.output_height - box_ur[1])
-        
+
         # Get text to display
         text_contents = self.text.get(text_element_name)
         text_prefix = text_element['prefix']
@@ -730,15 +754,15 @@ class GenerateDaily():
 
 
         if text_contents:
-            log.debug("Text Output: \n\t\t\t\t{0}, {1}, {2}, {fontsize}, {textcolor}, {shadow}".format(box_ll[0], box_ll[1], text_contents, fontsize=font_size, fontname=font, 
+            log.debug("Text Output: \n\t\t\t\t{0}, {1}, {2}, {fontsize}, {textcolor}, {shadow}".format(box_ll[0], box_ll[1], text_contents, fontsize=font_size, fontname=font,
                 textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]), shadow=0))
 
             text_roi = oiio.ImageBufAlgo.text_size(text_contents, fontsize=font_size, fontname=font)
-            
+
             # Add text height to position
             box_ll[1] = int(box_ll[1] + text_roi.height)
             box_width = box_ur[0] - box_ll[0]
-            
+
             # Wrap text into lines that are not longer than box width
             if text_roi.width > box_width:
                 words = text_contents.split()
@@ -764,7 +788,7 @@ class GenerateDaily():
             lines.reverse()
             for line in lines:
                 oiio.ImageBufAlgo.render_text(
-                    buf, box_ll[0], box_ll[1], line, fontsize=font_size, fontname=font, 
+                    buf, box_ll[0], box_ll[1], line, fontsize=font_size, fontname=font,
                     textcolor=(font_color[0], font_color[1], font_color[2], font_color[3]),
                     alignx=justify, aligny="bottom", shadow=0,
                     roi=oiio.ROI.All, nthreads=0

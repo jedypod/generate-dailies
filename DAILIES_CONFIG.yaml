@@ -1,36 +1,24 @@
 globals:
-  ###############################################
-  ## Color
-  ###############################################
-
   # Path to the ocio config to use
   ocioconfig: /mnt/cave/dev/ocio/aces/config.ocio
-  # ocio display transform
-  ociodisplay: bt709
-  # ocio view transform 
-  ocioview: trib
-
-  # Not implemented yet
-  # ociocolorconvert: 
-  # ociolook: 
 
   ###############################################
   ## Reformatting and Cropping
   ###############################################
-  # If debug is true, no encoding will be done and there will be debug prints 
+  # If debug is true, no encoding will be done and there will be debug prints
   debug: true
-  # Number of pixels to crop from width and height before resizing to dailies res. 
+  # Number of pixels to crop from width and height before resizing to dailies res.
   # Enter an int pixel number, or a percentage like  5% or 6.25%
   cropwidth:
-  cropheight: 
-  # width and height are the resolution to reformat to. 
+  cropheight:
+  # width and height are the resolution to reformat to.
   width:
   height:
   # If fit=false there will be no padding: height will be ignored and the aspect ratio of the input will be preserved.
   fit: true
 
   # Enable an oiio pixel filter to use for scaling. Default is good: blackman-harris for scaling up, lanczos3 for scaling down.
-  # 
+  #
   # Possible filters: https://github.com/OpenImageIO/oiio/blob/master/src/libutil/filter.cpp
   #     // name              dim width fixedwidth scalable separable
   #     { "box",             1,   1,    false,    true,     true },
@@ -51,12 +39,12 @@ globals:
 
   # Output framerate. film=24, hdtv=23.98 = 24000/1001, pal=25, ntsc=30000/1001
   framerate: 24
-  
+
   # specify a default video filter string to use in ffmpeg.
   # https://trac.ffmpeg.org/wiki/Scaling
   # https://ffmpeg.org/ffmpeg-scaler.html
   # Example: "lut3d=${lut},scale=w=${width}:h=${height}:force_original_aspect_ratio=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2"
-  vf: 
+  vf:
   # Choose which output profile to use by default if none specified. See options below.
   output_codec: h264_hq
   # Movie location is a relative or absolute path for where to place the daily movie
@@ -67,7 +55,20 @@ globals:
   movie_append_codec: true
 
 
+###############################################
+## OpenColorIO Profiles
+###############################################
 
+ocio_profiles:
+  trib:
+    name: trib
+    # Type of ocio transform. Can be [display, colorconvert, look]
+    type: display
+    # ocio display transform: Need [display, view, fromspace] - e.g. ["rec709", "Show LUT", "lin_ap1"]
+    ociodisplay: ["bt709", "trib", "lin_ap0"]
+    # [src_colorspace, dst_colorspace]
+    ociocolorconvert: ["Utility - Raw", "trib_lut"]
+    # ociolook:
 
 ###############################################
 ## Dailies Overlay Profiles
@@ -79,18 +80,18 @@ profiles:
   # Internal Daily: overlays for frame counter, artist, comment, date, etc
   internal:
     # path to ttf font file
-    font: 
-    # Specify default font size in percentage of frame width. E.g. a value of 1.0 in a 1920x1080 image would be 19.6px 
+    font:
+    # Specify default font size in percentage of frame width. E.g. a value of 1.0 in a 1920x1080 image would be 19.6px
     # small = 0.4, medium = 0.8, big = 1.3
-    font_size: 
+    font_size:
     # justify x left or center
-    justify: 
+    justify:
     # Specify the percentage of font_size to use as leading: the space between lines
     leading: 0.15
-    # Specify default font color [R,G,B,A] 
+    # Specify default font color [R,G,B,A]
     font_color: [0.8, 0.8, 0.8, 1.0]
-    
-    # Enable an overlay to crop the pixels to a specific aspect ratio. 
+
+    # Enable an overlay to crop the pixels to a specific aspect ratio.
     # For example to do a hard crop to 2.35 set the cropmask-ar to 2.35 and the crop mask opacity to 1.0
     cropmask:
       enable: true
@@ -106,7 +107,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.8427083333333333, 0.9481481481481482, 0.9975179036458334, 0.996875]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        justify: left 
+        justify: left
         # https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior
         # Specify the datetime format. For example "%Y-%m-%dT%H:%M:%S" is ISO 8601 standard date format
         # This would be Mon July 7 2017 23h13: "%a %b %d %Y %Hh%M"
@@ -121,7 +122,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.4328125, 0.9481481481481482, 0.5796875, 0.9998842592592593]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        justify: center 
+        justify: center
 
 
       comment:
@@ -132,7 +133,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.018229166666666668, 0.018518518518518517, 0.49270833333333336, 0.14166666666666666]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        justify: left 
+        justify: left
 
 
       framecounter:
@@ -143,7 +144,7 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.9375, 0.016666666666666666, 0.9890299479166667, 0.08333333333333333]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        justify: left 
+        justify: left
         padding: 5
 
       discipline:
@@ -154,10 +155,10 @@ profiles:
         # Position a box: 2 x/y coordinates: [LL, UR]. 0,0 is Lower Left (Nuke-style)
         box: [0.020833333333333332, 0.9481481481481482, 0.14719645182291666, 0.987037037037037]
         font_color: [0.8, 0.8, 0.8, 1.0]
-        justify: left 
+        justify: left
 
 
-  # Delivery profile - minimal overlays with cropmask and slate. 
+  # Delivery profile - minimal overlays with cropmask and slate.
   delivery:
     cropmask:
     framecounter:
@@ -195,7 +196,7 @@ output_codecs:
     name: h264_lq
     overlay: internal_daily
     cropwidth:
-    cropheight: 
+    cropheight:
     width:
     height:
     fit:
@@ -226,10 +227,10 @@ output_codecs:
     codec: prores_ks
     profile: 4
     qscale: 7
-    preset: 
-    keyint: 
+    preset:
+    keyint:
     bframes:
-    tune: 
+    tune:
     crf:
     pix_fmt: yuva444p10le
     vf: colormatrix=bt601:bt709
@@ -249,10 +250,10 @@ output_codecs:
     codec: prores_ks
     profile: 3
     qscale: 7
-    preset: 
-    keyint: 
+    preset:
+    keyint:
     bframes:
-    tune: 
+    tune:
     crf:
     pix_fmt: yuva444p10le
     vf: colormatrix=bt601:bt709
@@ -267,7 +268,7 @@ output_codecs:
 
   dnxhd_36:
     overlay: delivery
-  
+
   dnxhd_175:
     # http://forum.selur.de/topic1348-dnxhr-encoding.html
     # 1920x1080p  175 10  24000/1001
@@ -280,7 +281,7 @@ output_codecs:
     codec: dnxhd
     profile: dnxhd
     qscale:
-    preset: 
+    preset:
     keyint:
     bframes:
     tune:
@@ -292,7 +293,7 @@ output_codecs:
     metadata_s:
     bitrate: 175M
     movie_ext: mov
-  
+
   dnxhr_hqx:
     # https://askubuntu.com/questions/907398/how-to-convert-a-video-with-ffmpeg-into-the-dnxhd-dnxhr-format
     # dnxhd, dnxhr_444, dnxhr_hqx, dnxhr_hq, dnxhr_sq, dnxhr_lb
@@ -305,10 +306,10 @@ output_codecs:
     codec: dnxhd
     profile: dnxhr_hqx
     qscale:
-    preset: 
-    keyint: 
+    preset:
+    keyint:
     bframes:
-    tune: 
+    tune:
     crf:
     pix_fmt: yuv422p12le
     vf: colormatrix=bt601:bt709
@@ -317,13 +318,13 @@ output_codecs:
     metadata_s:
     bitrate: 175M
     movie_ext: mov
-  
+
   mjpeg:
     # Special codec to concatenate input images into a quicktime container
     name: mjpeg
     overlay: internal_daily
     cropwidth:
-    cropheight: 
+    cropheight:
     width: 1920
     height: 1080
     fit:
