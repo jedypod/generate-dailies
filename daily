@@ -68,7 +68,7 @@ DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "dailies-config.yaml")
 DEFAULT_CODEC = 'h264_hq'
 DEFAULT_DAILIES_PROFILE = 'internal'
 
-DEBUG = True
+DEBUG = False
 
 log = logging.getLogger(__name__)
 
@@ -115,15 +115,18 @@ class GenerateDaily():
         parser.add_argument("input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
         parser.add_argument("-c", "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
         parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles.keys())))
+        parser.add_argument("-o", "--output", help="Output directory: Optional override to movie_location in the DAILIES_CONFIG")
         parser.add_argument("-t", '--text', help="Text elements and contents to add: e.g. \n\t\"artist: Jed Smith | comment: this is stupid man|")
-        parser.add_argument("--ocio", help="OCIO Colorspace Conversion to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
+        parser.add_argument("-ct", "--color_transform", help="OCIO Colorspace Conversion preset to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
+        
         args = parser.parse_args()
 
         input_path = args.input_path
         codec = args.codec
         input_dailies_profile = args.profile
+        self.movie_location = args.output
         texts = args.text
-        commandline_ocio_profile = args.ocio
+        commandline_ocio_profile = args.color_transform
 
 
         if texts:
@@ -288,22 +291,38 @@ class GenerateDaily():
         # Create full movie filename
         # Append codec to dailies movie name if requested
         if self.globals_config['movie_append_codec']:
-            movie_basename = seq_basename + "_" + self.codec_config['name']
-            movie_filename = movie_basename + "." + movie_ext
+            codec_name = self.codec_config.get('name')
+            if not codec_name:
+                print("No codec name! Please fix the config!")
+                print(self.codec_config)
+                codec_name = ""
+            else:
+                movie_basename = seq_basename + "_" + codec_name
+                movie_filename = movie_basename + "." + movie_ext
         else:
             movie_basename = seq_basename
             movie_filename = seq_basename + "." + movie_ext
 
 
         # Handle relative / absolute paths for movie location
-        movie_location = self.globals_config['movie_location']
-        if movie_location.startswith('/'):
-            self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_filename)
-        elif "~" in movie_location:
-            movie_location = os.path.expanduser(movie_location)
-            self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
+        # use globals config for movie location if none specified on the commandline
+        if not self.movie_location:
+            print("No output folder specified. Using Output folder from globals: {0}".format(self.movie_location))
+            self.movie_location = self.globals_config['movie_location']
+
+        if self.movie_location.startswith('/'):
+            # Absolute path specified
+            self.movie_fullpath = os.path.join(self.movie_location, movie_filename)
+        elif self.movie_location.startswith("~"):
+            # Path referencing home folder specified
+            self.movie_location = os.path.expanduser(self.movie_location)
+            self.movie_fullpath = os.path.join(self.movie_location, movie_filename)
+        elif self.movie_location.startswith(".") or self.movie_location.startswith(".."):
+            # Relative path specified - will output relative to image sequence directory
+            self.movie_fullpath = os.path.join(self.image_sequence.dirname, self.movie_location, movie_filename)
         else:
-            self.movie_fullpath = os.path.join(self.image_sequence.dirname, movie_location, movie_filename)
+            self.movie_fullpath = os.path.join(self.movie_location, movie_filename)
+
 
         # Check output dir exists
         if not os.path.exists(os.path.dirname(self.movie_fullpath)):
@@ -389,14 +408,14 @@ class GenerateDaily():
                     jpeg_img.save(ffproc.stdin, "JPEG", subsampling="4:4:4", quality=90)
                 else:
                     buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
-                result, error = ffproc.communicate()
             else:
                 buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
 
             frame_elapsed_time = datetime.timedelta(seconds=time.time() - frame_start_time)
             log.info("Frame Processing Time: \t{0}".format(frame_elapsed_time))
 
-
+        if not DEBUG:
+            result, error = ffproc.communicate()
         elapsed_time = datetime.timedelta(seconds = time.time() - self.start_time)
         log.info("Total Processing Time: \t{0}".format(elapsed_time))
 

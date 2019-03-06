@@ -1,8 +1,8 @@
 globals:
   # Path to the ocio config to use
-  ocioconfig: /af/show/oa/assets/lut/ocio_config/publish/main/lut/v010/bundle/config.ocio
+  ocioconfig: /af/show/oa/assets/lut/ocio_config/publish/main/lut/v012/bundle/config.ocio
   # Default ocio profile to use if not specified on the commandline
-  ocio_default_transform: show_log
+  ocio_default_transform: grade
   
   ###############################################
   ## Reformatting and Cropping
@@ -14,8 +14,8 @@ globals:
   cropwidth:
   cropheight:
   # width and height are the resolution to reformat to.
-  width:
-  height:
+  width: 1920
+  height: 1080
   # If fit=false there will be no padding: height will be ignored and the aspect ratio of the input will be preserved.
   fit: true
 
@@ -165,8 +165,8 @@ dailies_profiles:
 
 # Output profile definitions.
 output_codecs:
-  h264_hq:
-    name: h264_hq
+  avchq:
+    name: avchq
     overlay: internal_daily
     cropwidth:
     cropheight:
@@ -190,8 +190,8 @@ output_codecs:
     bitrate:
     movie_ext: mov
 
-  h264_lq:
-    name: h264_lq
+  avclq:
+    name: avclq
     overlay: internal_daily
     cropwidth:
     cropheight:
@@ -215,6 +215,31 @@ output_codecs:
     bitrate:
     movie_ext: mp4
 
+  avc_lq:
+    name: avc_lq
+    overlay: internal_daily
+    cropwidth:
+    cropheight:
+    width:
+    height:
+    fit:
+    framerate:
+    codec: libx264
+    profile: high444
+    qscale:
+    preset: slower
+    keyint: 1
+    bframes: 0
+    tune: film
+    crf: 17
+    pix_fmt: yuv444p10le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 8
+    vendor:
+    metadata_s:
+    bitrate:
+    movie_ext: mov
+
   prores_4444:
     name: prores_4444
     overlay: delivery
@@ -224,7 +249,7 @@ output_codecs:
     framerate:
     codec: prores_ks
     profile: 4
-    qscale: 7
+    qscale: 5
     preset:
     keyint:
     bframes:
@@ -262,7 +287,27 @@ output_codecs:
     movie_ext: mov
 
   prores_422:
+    name: prores_422
     overlay: delivery
+    width:
+    height:
+    fit:
+    framerate:
+    codec: prores_ks
+    profile: 2
+    qscale: 7
+    preset:
+    keyint:
+    bframes:
+    tune:
+    crf:
+    pix_fmt: yuva444p10le
+    vf: colormatrix=bt601:bt709
+    bitdepth: 10
+    vendor: ap10
+    metadata_s: encoder="Apple ProRes 422 HQ"
+    bitrate:
+    movie_ext: mov
 
   dnxhd_36:
     overlay: delivery
