@@ -3,7 +3,7 @@ globals:
   ocioconfig: /af/show/oa/assets/lut/ocio_config/publish/main/lut/v012/bundle/config.ocio
   # Default ocio profile to use if not specified on the commandline
   ocio_default_transform: grade
-  
+
   ###############################################
   ## Reformatting and Cropping
   ###############################################
@@ -55,6 +55,8 @@ globals:
   movie_ext: mov
   # If true, appends "_<codec name>" to the movie file
   movie_append_codec: true
+  # All possible input image extensions that will be considered. (Uppercase will automatically be added)
+  input_image_formats: ['exr', 'tif', 'tiff', 'png', 'jpg', 'jpeg', 'iff', 'tex', 'tx', 'jp2', 'j2c']
 
 
 ###############################################

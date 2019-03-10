@@ -64,9 +64,9 @@ TODO
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
-DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "dailies-config.yaml")
+DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "../dailies-config.yaml")
 DEFAULT_CODEC = 'h264_hq'
-DEFAULT_DAILIES_PROFILE = 'internal'
+DEFAULT_DAILIES_PROFILE = 'delivery'
 
 DEBUG = False
 
@@ -119,7 +119,7 @@ class GenerateDaily():
         parser.add_argument("-t", '--text', help="Text elements and contents to add: e.g. \n\t\"artist: Jed Smith | comment: this is stupid man|")
         parser.add_argument("-ct", "--color_transform", help="OCIO Colorspace Conversion preset to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
         parser.add_argument("--ocio", help="OCIO Colorspace Conversion to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
-        parser.add_argument("-d", "--debug", help="Set debug to true.")
+        parser.add_argument("-d", "--debug", help="Set debug to true.", action="store_true")
         args = parser.parse_args()
 
         input_path = args.input_path
@@ -130,6 +130,7 @@ class GenerateDaily():
         commandline_ocio_profile = args.color_transform
         commandline_ocio_profile = args.ocio
         if args.debug:
+            print("Setting DEBUG=True!")
             DEBUG = True
 
         if texts:
@@ -149,13 +150,6 @@ class GenerateDaily():
         if not input_path:
             input_path = os.getcwd()
 
-        # Gather image sequence from input path
-        self.image_sequence = self.get_image_sequences(input_path)
-
-        if not self.image_sequence:
-            print("No image sequence found! Exiting...")
-            self.setup_success = False
-            return
 
         # Get Config dicts for globals and the "codec" config from the config file
         self.globals_config = config.get("globals")
@@ -175,7 +169,12 @@ class GenerateDaily():
 
         self.codec_config = config["output_codecs"][codec]
 
-
+        # Gather image sequences from input path
+        self.image_sequences = self.get_image_sequences(input_path)
+        if not self.image_sequences:
+            print("No image sequence found! Exiting...")
+            self.setup_success = False
+            return
 
 
         # Get dailies profile config
@@ -207,15 +206,18 @@ class GenerateDaily():
 
         # Get OCIO config and verify it exists
         self.ocioconfig = self.globals_config.get('ocioconfig')
+
+        # Try to get ocio config from $OCIO env-var if it's not defined
+        if not self.ocioconfig:
+            env_ocio = os.getenv("OCIO")
+            if env_ocio:
+                self.globals_config['ocioconfig'] = env_ocio
+                self.ocioconfig = env_ocio
+
         if not os.path.exists(self.ocioconfig):
             log.warning("OCIO Config does not exist: \n\t{0}\n\tNo OCIO color transform will be applied".format(
                 self.ocioconfig))
             self.ocioconfig = None
-
-        # Try to get ocio config from $OCIO env-var if it's not defined
-        if not self.globals_config.get('ocioconfig'):
-            if os.getenv("OCIO"):
-                self.globals_config['ocioconfig'] = os.getenv("OCIO")
 
         # Get default ocio transform to use if none is passed by commandline
         ocio_default_transform = self.globals_config.get("ocio_default_transform")
@@ -267,6 +269,10 @@ class GenerateDaily():
 
         self.setup_success = True
 
+
+        if self.setup_success == True:
+            for self.image_sequence in self.image_sequences:
+                self.process()
 
 
 
@@ -329,8 +335,11 @@ class GenerateDaily():
 
         # Check output dir exists
         if not os.path.exists(os.path.dirname(self.movie_fullpath)):
-            print("Output directory does not exist: \n\t{0}".format(os.path.dirname(self.movie_fullpath)))
-            return
+            try:
+                os.makedirs(os.path.dirname(self.movie_fullpath))
+            except OSError:
+                print("Output directory does not exist and do not have permission to create it: \n\t{0}".format(os.path.dirname(self.movie_fullpath)))
+                return
 
         # Set up Logger
         log_fullpath = os.path.splitext(self.movie_fullpath)[0] + ".log"
@@ -338,7 +347,7 @@ class GenerateDaily():
             os.remove(log_fullpath)
         handler = logging.FileHandler(log_fullpath)
         handler.setFormatter(
-            logging.Formatter('%(levelname)s %(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S')
+            logging.Formatter('%(levelname)s\t %(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S')
             )
         log.addHandler(handler)
         if self.globals_config['debug']:
@@ -437,9 +446,20 @@ class GenerateDaily():
         """
 
         if os.path.isdir(input_path):
-            # Find all image sequences in the directory
-            image_sequences = pyseq.get_sequences(input_path)
-
+            # files = {file: os.path.isfile(file) for file in os.listdir(input_path)}
+            files = [file for file in os.listdir(input_path) if os.path.isfile(file)]
+            if len(files) > 1:
+                # Directory more than one file: Find all image sequences in the directory
+                image_sequences = pyseq.get_sequences(input_path)
+            else:
+                # Try to find image sequences recursively inside specified directory
+                image_sequences = []
+                for root, directories, filenames in os.walk(input_path):
+                    for directory in directories:
+                        image_sequences += pyseq.get_sequences(os.path.join(root, directory))
+                if not image_sequences:
+                    log.error("Could not find any image files recursively in source directory: {0}".format(input_path))
+                    return None
         elif os.path.isfile(input_path):
             # Assume it's the first frame of the image sequence
             # Try to split off the frame number to get a glob
@@ -457,16 +477,17 @@ class GenerateDaily():
                 image_sequences = None
 
         if image_sequences:
-            if len(image_sequences) > 1:
-                image_sequence = image_sequences[0]
-                log.warning("Found more than one image sequence! Using only the first one: \n\t{0}".format(image_sequence.path()))
-            elif len(image_sequences) == 1:
-                image_sequence = image_sequences[0]
-            missing_frames = image_sequence.missing()
-            if missing_frames:
-                log.warning("This image sequence has {0} missing frames: \n\t{1}".format(len(missing_frames), ' '.join(str(x) for x in missing_frames)))
-            log.info("\nFound {0} {1} frames: \n\t{2}".format(image_sequence.frames(), image_sequence.tail(), image_sequence.path()))
-            return image_sequence
+            # Remove image sequences not in list of approved extensions
+            input_image_formats = self.globals_config.get('input_image_formats')
+            if not input_image_formats:
+                input_image_formats = ['exr']
+            actual_image_sequences = []
+            for image_sequence in image_sequences:
+                extension = image_sequence.name.split('.')[-1]
+                print(extension)
+                if extension in input_image_formats:
+                    actual_image_sequences.append(image_sequence)
+            return actual_image_sequences
         else:
             log.error("Could not find any Image Sequences!!!")
             return None
@@ -570,7 +591,11 @@ class GenerateDaily():
         # Get Codec Config and gather information
         iwidth = spec.width
         iheight = spec.height
-        iar = float(iwidth) / float(iheight)
+        if float(iheight) != 0:
+            iar = float(iwidth) / float(iheight)
+        else:
+            log.error("Input height is Zero! Skipping frame {0}".format(frame))
+            return
 
         px_filter = self.globals_config.get('filter')
         self.output_width = self.globals_config.get('width')
@@ -869,5 +894,5 @@ class GenerateDaily():
 
 if __name__=="__main__":
     daily = GenerateDaily()
-    if daily.setup_success:
-        daily.process()
+    # if daily.setup_success:
+    #     daily.process()
