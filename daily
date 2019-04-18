@@ -60,6 +60,11 @@ TODO
     - Generalized metadata access
     - Text from metadata information
     - Add crop config and better textelement config options to the nuke setup tool
+    - Refactor to calculate format only once for image sequences?
+    - Revise logging:
+        - clean up log for each frame.
+        - print fps for each frame
+        - print total calculation time at end: summary of frames calculated, time per frame average fps etc
 """
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -111,7 +116,7 @@ class GenerateDaily():
         ocio_profiles = config.get("ocio_profiles")
 
         # Parse input arguments
-        parser = argparse.ArgumentParser(description='Process given exr image sequence with ocio display, resize and output to stdout.')
+        parser = argparse.ArgumentParser(description='Process given image sequence with ocio display, resize and output to ffmpeg for encoding into a dailies movie.')
         parser.add_argument("input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
         parser.add_argument("-c", "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
         parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles.keys())))
@@ -444,10 +449,10 @@ class GenerateDaily():
         Returns:
             An image sequence object.
         """
-
+        input_path = os.path.realpath(input_path)
         if os.path.isdir(input_path):
             # files = {file: os.path.isfile(file) for file in os.listdir(input_path)}
-            files = [file for file in os.listdir(input_path) if os.path.isfile(file)]
+            files = [file for file in os.listdir(input_path) if os.path.isfile(os.path.join(input_path, file))]
             if len(files) > 1:
                 # Directory more than one file: Find all image sequences in the directory
                 image_sequences = pyseq.get_sequences(input_path)
@@ -484,7 +489,6 @@ class GenerateDaily():
             actual_image_sequences = []
             for image_sequence in image_sequences:
                 extension = image_sequence.name.split('.')[-1]
-                print(extension)
                 if extension in input_image_formats:
                     actual_image_sequences.append(image_sequence)
             return actual_image_sequences
@@ -515,7 +519,7 @@ class GenerateDaily():
             args = "{0} -y -framerate {1} -i pipe:0".format(ffmpeg_command, self.globals_config['framerate'])
         else:
             # Set up input arguments for raw video and pipe:
-            args = "{0} -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
+            args = "{0} -hide_banner -y -f rawvideo -pixel_format {1} -video_size {2}x{3} -framerate {4} -i pipe:0".format(
                 ffmpeg_command, pixel_format, self.globals_config['width'], self.globals_config['height'], self.globals_config['framerate'])
 
         # Add timecode so that start frame will display correctly in RV etc
