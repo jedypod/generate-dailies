@@ -69,7 +69,7 @@ TODO
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
-DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "../dailies-config.yaml")
+DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "dailies-config.yaml")
 DEFAULT_CODEC = 'h264_hq'
 DEFAULT_DAILIES_PROFILE = 'delivery'
 
@@ -120,11 +120,17 @@ class GenerateDaily():
         parser.add_argument("input_path", help="Input exr image sequence. Can be a folder containing images, a path to the first image, a percent 05d path, or a ##### path.")
         parser.add_argument("-c", "--codec", help="Codec name: Possible options are defined in the DAILIES_CONFIG:\n{0}".format("\n\t".join(output_codecs)))
         parser.add_argument("-p", "--profile", help="Dailies profile: Choose the settings to use for dailies overlays:\n{0}".format("\n\t".join(dailies_profiles.keys())))
-        parser.add_argument("-o", "--output", help="Output directory: Optional override to movie_location in the DAILIES_CONFIG")
+        parser.add_argument("-o", "--output", help="Output directory: Optional override to movie_location in the DAILIES_CONFIG. This can be a path relative to the image sequence.")
         parser.add_argument("-t", '--text', help="Text elements and contents to add: e.g. \n\t\"artist: Jed Smith | comment: this is stupid man|")
         parser.add_argument("-ct", "--color_transform", help="OCIO Colorspace Conversion preset to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
         parser.add_argument("--ocio", help="OCIO Colorspace Conversion to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
         parser.add_argument("-d", "--debug", help="Set debug to true.", action="store_true")
+
+        # Show help if no args.
+        if len(sys.argv)==1:
+            parser.print_help()
+            return None
+
         args = parser.parse_args()
 
         input_path = args.input_path
