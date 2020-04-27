@@ -458,21 +458,19 @@ class GenerateDaily():
         input_image_formats = self.globals_config.get('input_image_formats')
         print('Processing INPUT PATH: {0}'.format(input_path))
         if os.path.isdir(input_path):
-            # files = {file: os.path.isfile(file) for file in os.listdir(input_path)}
-            image_files = [file for file in os.listdir(input_path) if os.path.isfile(os.path.join(input_path, file)) and os.path.splitext(file)[-1] in input_image_formats]
-            print(image_files)
-            if len(image_files) > 1:
-                # Directory more than one file: Find all image sequences in the directory
-                image_sequences = pyseq.get_sequences(input_path)
-            else:
-                # Try to find image sequences recursively inside specified directory
-                image_sequences = []
-                for root, directories, filenames in os.walk(input_path):
-                    for directory in directories:
-                        image_sequences += pyseq.get_sequences(os.path.join(root, directory))
-                if not image_sequences:
-                    log.error("Could not find any image files recursively in source directory: {0}".format(input_path))
-                    return None
+            # Find image sequences recursively inside specified directory
+            image_sequences = []
+            for root, directories, filenames in os.walk(input_path):
+                # If there is more than 1 image file in input_path, search this path for file sequences also
+                if root == input_path:
+                    image_files = [f for f in filenames if os.path.splitext(f)[-1][1:] in input_image_formats]
+                    if len(image_files) > 1:
+                        image_sequences += pyseq.get_sequences(input_path)
+                for directory in directories:
+                    image_sequences += pyseq.get_sequences(os.path.join(root, directory))
+            if not image_sequences:
+                log.error("Could not find any image files recursively in source directory: {0}".format(input_path))
+                return None
         elif os.path.isfile(input_path):
             # Assume it's the first frame of the image sequence
             # Try to split off the frame number to get a glob
