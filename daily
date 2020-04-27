@@ -423,14 +423,14 @@ class GenerateDaily():
 
 
             if not DEBUG:
+                pixels = buf.get_pixels(self.pixel_data_type)
                 if self.codec_config['name'] == 'mjpeg':
                     # If MJPEG: convert from raw byte data to jpeg before passing to ffmpeg
-                    pixels = buf.get_pixels(self.pixel_data_type)
                     jpeg_img = Image.fromarray(pixels)
                     # https://pillow.readthedocs.io/en/5.2.x/handbook/image-file-formats.html#jpeg
                     jpeg_img.save(ffproc.stdin, "JPEG", subsampling="4:4:4", quality=90)
                 else:
-                    buf.get_pixels(self.pixel_data_type).tofile(ffproc.stdin)
+                    ffproc.stdin.write(pixels)
             else:
                 buf.write(os.path.splitext(self.movie_fullpath)[0] + ".{0:05d}.jpg".format(self.frame.frame))
 
