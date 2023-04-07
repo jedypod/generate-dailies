@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
-from __future__ import with_statement
-from __future__ import print_function
-from __future__ import division
-
-import os, sys, re
-from glob import glob
-import time, datetime
+import os
+import time
+import shlex
 import logging
-import argparse, shlex
+import argparse
+import datetime
 import subprocess
+import unittest
+from unittest import mock
 
-from tc import Timecode
+import OpenImageIO as oiio
+import numpy as np
+import yaml
+from PIL import Image
+
 import pyseq
-try:
-    import OpenImageIO as oiio
-    import numpy as np
-    import yaml
-    from PIL import Image
-except ImportError:
-    print("Error: Missing dependencies. Need:\n\tOpenImageIO\n\tNumPy\n\tPyYAML\n\tPillow (for mjpeg codec conversion)")
-
+from tc import Timecode
 
 """
     Daily
@@ -72,7 +68,7 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 DAILIES_CONFIG_DEFAULT = os.path.join(dir_path, "dailies-config.yaml")
 DEFAULT_CODEC = 'avchq'
 DEFAULT_DAILIES_PROFILE = 'delivery'
-
+DEFAULT_FFMPEG = 'ffmpeg'
 DEBUG = False
 
 log = logging.getLogger(__name__)
@@ -101,7 +97,7 @@ class GenerateDaily():
         # Get Config file data
         if os.path.isfile(DAILIES_CONFIG):
             with open(DAILIES_CONFIG, 'r') as configfile:
-                config = yaml.load(configfile)
+                config = yaml.load(configfile, Loader=yaml.Loader)
         else:
             print("Error: Could not find config file {0}".format(DAILIES_CONFIG))
             self.setup_success = False
@@ -125,12 +121,12 @@ class GenerateDaily():
         parser.add_argument("--ocio", help="OCIO Colorspace Conversion to use. Specified in the dailies config under ocio_profiles.\n{0}".format(" ".join(ocio_profiles.keys())))
         parser.add_argument("-d", "--debug", help="Set debug to true.", action="store_true")
 
-        # Show help if no args.
-        if len(sys.argv)==1:
-            parser.print_help()
-            return None
-
         args = parser.parse_args()
+
+        # Show help if no args.
+        if not args.input_path:
+            parser.print_help()
+            return
 
         input_path = args.input_path
         codec = args.codec
@@ -164,6 +160,8 @@ class GenerateDaily():
         # Get Config dicts for globals and the "codec" config from the config file
         self.globals_config = config.get("globals")
 
+        self.ffmpeg_command = self.globals_config.get('ffmpeg_command', DEFAULT_FFMPEG)
+        self.log_to_file = self.globals_config.get('log_to_file', True)
 
         # Use default output codec from config if none specified.
         if not codec:
@@ -267,7 +265,7 @@ class GenerateDaily():
 
         # If output width or height is not defined, we need to calculate it from the input images
         if not self.output_width or not self.output_height:
-            buf = oiio.ImageBuf(self.image_sequence[0].path)
+            buf = oiio.ImageBuf(self.image_sequences[0][0].path)
             spec = buf.spec()
             iar = float(spec.width) / float(spec.height)
             if not self.output_width:
@@ -316,6 +314,7 @@ class GenerateDaily():
                 print("No codec name! Please fix the config!")
                 print(self.codec_config)
                 codec_name = ""
+                return
             else:
                 movie_basename = seq_basename + "_" + codec_name
                 movie_filename = movie_basename + "." + movie_ext
@@ -352,14 +351,15 @@ class GenerateDaily():
                 return
 
         # Set up Logger
-        log_fullpath = os.path.splitext(self.movie_fullpath)[0] + ".log"
-        if os.path.exists(log_fullpath):
-            os.remove(log_fullpath)
-        handler = logging.FileHandler(log_fullpath)
-        handler.setFormatter(
-            logging.Formatter('%(levelname)s\t %(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S')
-            )
-        log.addHandler(handler)
+        if self.log_to_file:
+            log_fullpath = os.path.splitext(self.movie_fullpath)[0] + ".log"
+            if os.path.exists(log_fullpath):
+                os.remove(log_fullpath)
+            handler = logging.FileHandler(log_fullpath)
+            handler.setFormatter(
+                logging.Formatter('%(levelname)s\t %(asctime)s \t%(message)s', '%Y-%m-%dT%H:%M:%S')
+                )
+            log.addHandler(handler)
         if self.globals_config['debug']:
             log.setLevel(logging.DEBUG)
         else:
@@ -382,6 +382,7 @@ class GenerateDaily():
 
         # Set up ffmpeg command
         ffmpeg_args = self.setup_ffmpeg()
+        ffmpeg_args = ffmpeg_args.replace('\\', '\\\\')  # shelex corrupts windows paths. that is a patch
 
         log.info("ffmpeg command:\n\t{0}".format(ffmpeg_args))
 
@@ -513,7 +514,7 @@ class GenerateDaily():
         """
 
         # ffmpeg-10bit No longer necessary in ffmpeg > 4.1
-        ffmpeg_command = "ffmpeg"
+        ffmpeg_command = self.ffmpeg_command
 
         if self.codec_config['bitdepth'] >= 10:
             pixel_format = "rgb48le"
@@ -897,12 +898,24 @@ class GenerateDaily():
         return buf
 
 
+# not a real unittest, but helpful for debug
+class Test(unittest.TestCase):
+    @mock.patch('argparse.ArgumentParser.parse_args',
+                return_value=argparse.Namespace(
+                    input_path=r'C:\path\to\sequence.1000.exr',
+                    output=r'c:\tmp\output',
+                    codec='avchq',
+                    profile=DEFAULT_DAILIES_PROFILE,
+                    text=None,
+                    color_transform='render',
+                    ocio='render',
+                    debug=False,
+                ))
+    def test_command(self, mock_args):
+        GenerateDaily()
 
 
-
-
-
-if __name__=="__main__":
+if __name__ == "__main__":
     daily = GenerateDaily()
     # if daily.setup_success:
     #     daily.process()
