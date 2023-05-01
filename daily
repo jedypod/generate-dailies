@@ -487,6 +487,17 @@ class GenerateDaily():
             match = SQ_FILTER.match(input_path)
             match = match.groupdict()
             image_sequences = pyseq.get_sequences(match['name'] + '.*.' + match['extension'])
+
+            # try to fix inner data for one frame sequences. only a workaround, but better then nothing
+            try:
+                for s in image_sequences:
+                    if len(s) > 1:
+                        # no need to fix longer sequences
+                        continue
+                    p = s[0].path.rsplit('.', 2)  # the mask of the path was matched be the regex, so this have to be ok
+                    s[0].is_sibling(p[0] + '.' + '0' * len(p[1]) + '.' + p[2])
+            except:
+                pass
         else:
             # Use the parent directory if it exists.
             dirname, filename = os.path.split(input_path)
@@ -909,7 +920,8 @@ class GenerateDaily():
 class Test(unittest.TestCase):
     @mock.patch('argparse.ArgumentParser.parse_args',
                 return_value=argparse.Namespace(
-                    input_path=r'c:\tmp\a\prx_ep01_seq0080_sh0040_background.*.exr',
+                    # input_path=r'c:\tmp\a\prx_ep01_seq0080_sh0040_background.*.exr',
+                    input_path=r'c:\tmp\a\foreground\prx_ep01_seq0080_sh0040_foreground.*.exr',
                     output=r'c:\tmp\output',
                     codec='avchq',
                     profile=DEFAULT_DAILIES_PROFILE,
