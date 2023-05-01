@@ -482,8 +482,9 @@ class GenerateDaily():
             if image:
                 image = image[0]
             image_sequences = pyseq.get_sequences(os.path.join(image.dirname, image.name.split(image.parts[-2])[0]) + "*")
-        elif match := SQ_FILTER.match(input_path):
+        elif SQ_FILTER.match(input_path):
             # Assume this is a %05d or ### image sequence.
+            match = SQ_FILTER.match(input_path)
             match = match.groupdict()
             image_sequences = pyseq.get_sequences(match['name'] + '.*.' + match['extension'])
         else:
@@ -908,7 +909,7 @@ class GenerateDaily():
 class Test(unittest.TestCase):
     @mock.patch('argparse.ArgumentParser.parse_args',
                 return_value=argparse.Namespace(
-                    input_path=r'C:\FTP\ad\Prod\ep10\seq0080\sh0070\Rendering\004\prx_ep10_seq0080_sh0070_dog.1000.exr',
+                    input_path=r'c:\tmp\a\prx_ep01_seq0080_sh0040_background.*.exr',
                     output=r'c:\tmp\output',
                     codec='avchq',
                     profile=DEFAULT_DAILIES_PROFILE,
