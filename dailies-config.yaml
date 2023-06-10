@@ -1,8 +1,14 @@
 globals:
   # Path to the ocio config to use
-  ocioconfig: /af/show/oa/assets/lut/ocio_config/publish/main/lut/v012/bundle/config.ocio
+  ocioconfig: "C:/path/to/config.ocio"
   # Default ocio profile to use if not specified on the commandline
   ocio_default_transform: grade
+
+  # Path to ffmpeg. If not specified, the one from the PATH will be used
+  ffmpeg_command: "C:\\path\\to\\ffmpeg.exe"
+
+  # Should the log be written to a file?
+  log_to_file: false
 
   ###############################################
   ## Reformatting and Cropping
@@ -13,9 +19,9 @@ globals:
   # Enter an int pixel number, or a percentage like  5% or 6.25%
   cropwidth:
   cropheight:
-  # width and height are the resolution to reformat to.
-  width: 1920
-  height: 1080
+  # width and height are the resolution to reformat to. leave empty if no reformat needed
+  width:
+  height:
   # If fit=false there will be no padding: height will be ignored and the aspect ratio of the input will be preserved.
   fit: true
 
@@ -69,6 +75,12 @@ ocio_profiles:
     ociocolorconvert: ["linear", "client_grade"]
   show_log:
     ociocolorconvert: ["linear", "REDLog3G10"]
+  render:
+    ociocolorconvert: ["ACES - ACEScg", "Output - sRGB"]
+  renderrec:
+    ociocolorconvert: ["ACES - ACEScg", "Output - Rec.709"]
+  D60:
+    ociocolorconvert: ["ACES - ACEScg", "Output - sRGB (D60 sim.)"]
 
 ###############################################
 ## Dailies Overlay Profiles

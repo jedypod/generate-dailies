@@ -1,0 +1,4 @@
+pyyaml
+numpy
+pillow
+# OpenImageIO @ https://www.lfd.uci.edu/~gohlke/pythonlibs/#openimageio can be used for windows
